@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.serena/
+npm-debug.log*
+.DS_Store
+.static-execution-context/
+.code-cartographer-mcp/
+.claude/settings.local.json
+.claude/skills/*
+!.claude/skills/cas-preflight/
+!.claude/skills/cas-snapshot/
+!.claude/skills/cartographer-implementer-session-primer/

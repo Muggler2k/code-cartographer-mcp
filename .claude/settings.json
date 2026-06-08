@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck)",
+      "Bash(npm test)",
+      "Bash(tasklist *)",
+      "Bash(where *)",
+      "mcp__juce-docs__get-juce-class-docs"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.githooks/secret-scan-hook.sh\"",
+            "timeout": 30,
+            "statusMessage": "Scanning pending write for secrets/PII"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.githooks/typecheck-hook.sh\"",
+            "timeout": 120,
+            "statusMessage": "Typechecking src after edit"
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.githooks/test-hook.sh\"",
+            "timeout": 120,
+            "statusMessage": "Running tests after edit"
+          }
+        ]
+      }
+    ]
+  }
+}
