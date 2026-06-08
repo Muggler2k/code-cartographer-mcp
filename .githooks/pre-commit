@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Pre-commit secret scanner for CAS repositories.
+# Blocks commits that contain likely secrets or PII.
+# Install: from repo root, run  `git config core.hooksPath .githooks`
+# macOS / Linux: also run  `chmod +x .githooks/pre-commit .githooks/pre-push`
+
+set -u
+
+RED=$'\033[0;31m'
+YEL=$'\033[1;33m'
+GRN=$'\033[0;32m'
+NC=$'\033[0m'
+
+# Staged files (added/copied/modified), excluding deletions.
+# mapfile requires bash 4.0+; macOS ships bash 3.2, so use a while-loop instead.
+FILES=()
+while IFS= read -r f; do FILES+=("$f"); done \
+  < <(git diff --cached --name-only --diff-filter=ACM | tr -d '\r')
+
+if [ ${#FILES[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# Patterns: label|regex — loaded from the shared single-source-of-truth file,
+# which is also used by the Claude Code PreToolUse guard (secret-scan-hook.sh).
+PATTERNS_FILE="$(dirname "$0")/secret-patterns.txt"
+PATTERNS=()
+if [ -f "$PATTERNS_FILE" ]; then
+  while IFS= read -r line; do
+    case "$line" in ""|\#*) continue ;; esac
+    PATTERNS+=("$line")
+  done < "$PATTERNS_FILE"
+fi
+
+FAIL=0
+REPORT=""
+
+is_lockfile() {
+  case "$1" in
+    package-lock.json|*/package-lock.json|npm-shrinkwrap.json|*/npm-shrinkwrap.json|pnpm-lock.yaml|*/pnpm-lock.yaml|yarn.lock|*/yarn.lock) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_pii_pattern() {
+  case "$1" in
+    "Social Security Number"|"Credit Card (Visa/MC/Amex/Disc)"|"Driver License Label"|"Bank Routing/Account Label"|"IBAN") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_binary() {
+  # $'\x00' expands to an empty string in bash (NUL bytes can't live in
+  # bash strings), so the previous check matched every non-empty file and
+  # silently skipped all text. Use grep -I's built-in binary detection.
+  ! LC_ALL=C grep -Iq '' "$1" 2>/dev/null
+}
+
+for f in "${FILES[@]}"; do
+  case "$f" in
+    .githooks/pre-commit|.githooks/pre-push) continue ;;
+    .githooks/secret-patterns.txt|.githooks/secret-scan-hook.sh|.githooks/typecheck-hook.sh) continue ;;
+    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.pdf|*.zip|*.gz|*.tgz|*.7z|*.mp4|*.mov|*.mp3|*.wav|*.ico|*.psd|*.ai|*.sketch|*.fig) continue ;;
+  esac
+  [ -f "$f" ] || continue
+  is_binary "$f" && continue
+
+  for entry in "${PATTERNS[@]}"; do
+    label="${entry%%|*}"
+    regex="${entry#*|}"
+    if is_lockfile "$f" && is_pii_pattern "$label"; then
+      continue
+    fi
+    if hits=$(grep -n -I -P -- "$regex" "$f" 2>/dev/null); then
+      :
+    else
+      hits=$(grep -n -I -E -i -- "$regex" "$f" 2>/dev/null || true)
+    fi
+    if [ -n "$hits" ]; then
+      FAIL=1
+      REPORT+="${RED}[${label}]${NC} $f"$'\n'
+      while IFS= read -r line; do
+        REPORT+="    ${line:0:200}"$'\n'
+      done < <(printf '%s\n' "$hits" | head -n 3)
+    fi
+  done
+done
+
+if [ "$FAIL" -ne 0 ]; then
+  printf '%s\n' "${RED}Pre-commit blocked: potential secret/PII detected.${NC}"
+  printf '%s' "$REPORT"
+  printf '\n%s\n' "${YEL}If this is a false positive, bypass with:  git commit --no-verify${NC}"
+  printf '%s\n' "${YEL}(Only do this if you have visually confirmed the content is safe.)${NC}"
+  exit 1
+fi
+
+printf '%s\n' "${GRN}pre-commit: no secrets detected in staged content.${NC}"
+exit 0
