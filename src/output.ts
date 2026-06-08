@@ -30,6 +30,7 @@ import type {
   TestPathResult
 } from "./analysis.js";
 import type { CallStackResult } from "./callGraph.js";
+import type { FindCallersResult, FindPathResult, StaticPathView } from "./pathQueries.js";
 import type {
   ArchitectureVisualizationResult,
   CallStackVisualizationResult,
@@ -206,6 +207,35 @@ export function formatContextSummary(map: StaticContextMap | null, mode: OutputM
   ].join("\n");
   const llmValue = { analysisBoundary: "codebase_only", meta, summary };
   return byMode(human, llmValue, mode);
+}
+
+export function formatFindCallers(result: FindCallersResult, mode: OutputMode): string {
+  const human = [
+    `# Callers of: ${result.subject}`,
+    "",
+    CODEBASE_ONLY_BANNER,
+    ...section("Static callers (confidence-graded)", result.callers.map((c) => `- **${c.label}** \`${c.callKind}\`/\`${c.confidence}\``)),
+    ...section("Uncertainty", uncertaintyLines(result.uncertainty))
+  ].join("\n");
+  return byMode(human, result, mode);
+}
+
+/** Render one static path as an arrow chain, or an em-dash when none was found. */
+function pathViewLines(title: string, p: StaticPathView | null): string[] {
+  if (!p) return section(title, ["- — (no static path found)"]);
+  return section(`${title} \`${p.confidence}\` (${p.hops} hop(s))`, [`- ${p.nodes.map((n) => `\`${n.label}\``).join(" → ")}`]);
+}
+
+export function formatFindPath(result: FindPathResult, mode: OutputMode): string {
+  const human = [
+    `# Static path: ${result.from} → ${result.to}`,
+    "",
+    CODEBASE_ONLY_BANNER,
+    ...pathViewLines("Fewest-hop path", result.fewestHop),
+    ...pathViewLines("Best-confidence path", result.bestConfidence),
+    ...section("Uncertainty", uncertaintyLines(result.uncertainty))
+  ].join("\n");
+  return byMode(human, result, mode);
 }
 
 export function formatReachability(result: ReachabilityResult, mode: OutputMode): string {

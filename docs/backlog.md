@@ -1,8 +1,8 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-08 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I core done** — graph-traversal unification (HF-1, ADR 0024); optional I3 (`find_path`/`find_callers` tools) pending; see per-epic notes below_
+_Last updated: 2026-06-08 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; see per-epic notes below_
 
-The full tool/type **surface** is implemented (17 tools + the complete type
+The full tool/type **surface** is implemented (19 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
 dependency-aware work behind that contract and a local index of the CAS
 requirements each task serves. CAS (`../debug_mcp_context_manager/context/`) remains the source of
@@ -82,7 +82,7 @@ _Note: `categorizeFile` (Epic B1) was implemented early as a prerequisite for th
 - **C3.** Legacy-path candidates (heuristic + confidence). → C8 / `CAP-09`,`POL-07`
 - **C4.** Risk areas + `codebaseOnlyBoundary` + uncertainty findings (incl. reachability & change-impact as `unresolved`). → C8 / `CAP-07`,`CAP-10`,`POL-04`
 
-### Epic D — Output — ✅ COMPLETE (all 17 formatters, human/llm/dual; ADR 0015)
+### Epic D — Output — ✅ COMPLETE (all 19 formatters, human/llm/dual; ADR 0015)
 - **D1.** `formatInitStatus` / `formatInitResult` / `formatContextSummary` in both modes, kept in sync with the schema. → C10 / `CAP-03`,`CAP-18`,`CAP-19`
 - **D2.** Confirm pre-init / not-initialized messaging matches CAS policy. → C10 / `CAP-22`
 
@@ -104,11 +104,11 @@ _Note: `categorizeFile` (Epic B1) was implemented early as a prerequisite for th
 - **H2.** Derived `graph-index.sqlite` (`src/graphIndex.ts`, built-in `node:sqlite`): indexed caller/callee/path queries, SCC cached once, stamped with `mapHash` and rebuilt on mismatch; the JSON map stays the single source of truth. → `CAP-23`
 - **H3.** Correctness + structural performance tests + the implementation note [`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md). _Implemented + tested but **not yet wired** into the analysis/call-graph traversal layer — see **Epic I** (HF-1)._
 
-### Epic I — Unify graph traversal behind `GraphSource` (HF-1, ADR 0024) — ✅ CORE DONE (I1/I2/I4); I3 optional, pending
+### Epic I — Unify graph traversal behind `GraphSource` (HF-1, ADR 0024) — ✅ DONE (I1–I4)
 `analysis.ts` and `callGraph.ts` now traverse a single `GraphSource` substrate instead of two hand-rolled adjacency engines. `GraphSource` (neighbors + node lookups) has two implementations: `inMemoryGraphSource` (fallback, from the JSON map) and the SQLite-backed `GraphIndex`; `loadGraphContext` picks the index for large graphs, else the in-memory source — **SQLite is optional** (no hard Node ≥ 22.5 floor on the critical path). Resolves review findings HF-1, MF-8, MF-9, MF-12.
 - **I1.** ✅ `GraphSource` is the single substrate — `loadAnalysisContext`/`traverse` (analysis.ts) and `mapCallStack` (callGraph.ts) consume `callees`/`callers` + node lookups; hand-rolled adjacency deleted; dead `RESOLVED_KINDS` removed (A5). Reachability semantics preserved + tested (MF-4). → `CAP-23`, `CAP-07..16`
 - **I2.** ✅ Indexed symbol/path lookups (`GraphIndex` `nodes_symbol`/`nodes_path`, schema v2; `Map`s in-memory) so `resolveTargets` stops linear-scanning (review MF-8). → perf
-- **I3.** ◻ (Optional, pending) surface `find_path` / `find_callers` MCP tools wrapping the path-finding algorithms over the shared substrate in the codebase-only envelope — the only remaining piece to make `findFewestHopPath`/`findKBestPaths`/`findBestConfidencePath` live. → `CAP-23`
+- **I3.** ✅ `find_callers` / `find_path` MCP tools (`src/pathQueries.ts` + formatters + CLI) wrap the path-finding algorithms over the shared substrate in the codebase-only envelope (`likely`-clamped) — `findFewestHopPath`/`findBestConfidencePath`/`findKBestPaths` are now live in the product (19 tools total). → `CAP-23`
 - **I4.** ✅ `GraphIndex` raw query methods kept internal; the analysis/call-graph layer wraps every result in the `analysisBoundary`/uncertainty envelope; headline docs corrected (no longer imply the index was already in use).
 
 ### Epic E — Verification
