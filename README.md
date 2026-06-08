@@ -6,7 +6,7 @@ The Context Architecture System repository at `../debug_mcp_context_manager` rem
 
 ## Status: implemented (Epics A–G)
 
-**The full product is implemented and tested.** The MCP server registers all **17 tools** and the CLI dispatches them; `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. ~221 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0023. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md).
+**The full product is implemented and tested.** The MCP server registers all **17 tools** and the CLI dispatches them; `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. ~226 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0023. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md).
 
 ## Scope
 
@@ -40,7 +40,7 @@ npm run build
 npm test
 ```
 
-`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (~221 tests).
+`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (~226 tests).
 
 ## Run Locally
 

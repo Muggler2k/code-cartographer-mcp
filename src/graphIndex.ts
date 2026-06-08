@@ -9,12 +9,12 @@ import * as path from "node:path";
 
 import { getMapPath, readContextMap, type StaticContextMap } from "./contextMap.js";
 import type { CallEdge, CallGraphNode } from "./callGraph.js";
-import { tarjanScc, type NeighborSource, type SccResult } from "./pathfinding.js";
+import { inMemoryGraphSource, tarjanScc, type GraphSource, type SccResult } from "./pathfinding.js";
 
 const MAP_DIR = ".code-cartographer-mcp";
 const INDEX_FILE = "graph-index.sqlite";
 /** Bump when the index TABLE shape changes (independent of the map's SCHEMA_VERSION). */
-export const GRAPH_INDEX_SCHEMA_VERSION = 1;
+export const GRAPH_INDEX_SCHEMA_VERSION = 2; // v2: added nodes_symbol / nodes_path indexes (ADR 0024)
 
 export function getGraphIndexPath(repositoryRoot: string): string {
   return path.join(repositoryRoot, MAP_DIR, INDEX_FILE);
@@ -73,6 +73,24 @@ function rowToEdge(row: EdgeRow): CallEdge {
   };
 }
 
+interface NodeRow {
+  id: string;
+  symbol: string;
+  path: string;
+  kind: string;
+  confidence: string;
+}
+
+function rowToNode(row: NodeRow): CallGraphNode {
+  return {
+    id: row.id,
+    symbol: row.symbol,
+    path: row.path,
+    kind: row.kind as CallGraphNode["kind"],
+    confidence: row.confidence as CallGraphNode["confidence"]
+  };
+}
+
 // ---- Build ----------------------------------------------------------------
 
 const SCHEMA_SQL = `
@@ -81,6 +99,8 @@ const SCHEMA_SQL = `
   CREATE TABLE edges (from_id TEXT NOT NULL, to_id TEXT NOT NULL, call_kind TEXT, confidence TEXT, evidence TEXT);
   CREATE INDEX edges_from ON edges(from_id);
   CREATE INDEX edges_to ON edges(to_id);
+  CREATE INDEX nodes_symbol ON nodes(symbol);
+  CREATE INDEX nodes_path ON nodes(path);
 `;
 
 /**
@@ -177,11 +197,15 @@ export async function indexNeedsRebuild(
  * indexed lookups (not scans). SCC condensation is built ONCE per snapshot and cached
  * (`sccBuildCount` proves it). Holds NO reference to the JSON map — queries cannot scan it.
  */
-export class GraphIndex implements NeighborSource {
+export class GraphIndex implements GraphSource {
   private readonly db: DatabaseSync;
   private readonly calleeStmt: ReturnType<DatabaseSync["prepare"]>;
   private readonly callerStmt: ReturnType<DatabaseSync["prepare"]>;
   private readonly hasNodeStmt: ReturnType<DatabaseSync["prepare"]>;
+  private readonly nodeByIdStmt: ReturnType<DatabaseSync["prepare"]>;
+  private readonly nodesBySymbolStmt: ReturnType<DatabaseSync["prepare"]>;
+  private readonly nodesByPathStmt: ReturnType<DatabaseSync["prepare"]>;
+  private readonly allNodesStmt: ReturnType<DatabaseSync["prepare"]>;
   /** Total SQLite statements executed for neighbor lookups (== pathfinding neighborQueryCount). */
   sqliteQueryCount = 0;
   /** Times the SCC condensation was built — must stay 1 across many queries on one snapshot. */
@@ -192,9 +216,40 @@ export class GraphIndex implements NeighborSource {
   constructor(db: DatabaseSync, builtFromMapHash: string) {
     this.db = db;
     this.builtFromMapHash = builtFromMapHash;
-    this.calleeStmt = db.prepare("SELECT from_id, to_id, call_kind, confidence, evidence FROM edges WHERE from_id = ?");
-    this.callerStmt = db.prepare("SELECT from_id, to_id, call_kind, confidence, evidence FROM edges WHERE to_id = ?");
+    // ORDER BY rowid returns rows in insertion order, matching `inMemoryGraphSource` so the two
+    // substrates are byte-for-byte interchangeable in traversal order (Decision 0024).
+    this.calleeStmt = db.prepare("SELECT from_id, to_id, call_kind, confidence, evidence FROM edges WHERE from_id = ? ORDER BY rowid");
+    this.callerStmt = db.prepare("SELECT from_id, to_id, call_kind, confidence, evidence FROM edges WHERE to_id = ? ORDER BY rowid");
     this.hasNodeStmt = db.prepare("SELECT 1 FROM nodes WHERE id = ? LIMIT 1");
+    this.nodeByIdStmt = db.prepare("SELECT id, symbol, path, kind, confidence FROM nodes WHERE id = ?");
+    this.nodesBySymbolStmt = db.prepare("SELECT id, symbol, path, kind, confidence FROM nodes WHERE symbol = ? ORDER BY rowid"); // indexed on nodes_symbol
+    this.nodesByPathStmt = db.prepare("SELECT id, symbol, path, kind, confidence FROM nodes WHERE path = ? ORDER BY rowid"); // indexed on nodes_path
+    this.allNodesStmt = db.prepare("SELECT id, symbol, path, kind, confidence FROM nodes ORDER BY rowid");
+  }
+
+  /** Node metadata by id (one indexed lookup on the `nodes` primary key). */
+  getNode(id: string): CallGraphNode | undefined {
+    this.sqliteQueryCount++;
+    const row = this.nodeByIdStmt.get(id) as NodeRow | undefined;
+    return row ? rowToNode(row) : undefined;
+  }
+
+  /** Nodes whose symbol matches (one indexed lookup on `nodes_symbol`, not a scan). */
+  findNodesBySymbol(symbol: string): CallGraphNode[] {
+    this.sqliteQueryCount++;
+    return (this.nodesBySymbolStmt.all(symbol) as unknown as NodeRow[]).map(rowToNode);
+  }
+
+  /** Nodes whose path matches (one indexed lookup on `nodes_path`, not a scan). */
+  findNodesByPath(path: string): CallGraphNode[] {
+    this.sqliteQueryCount++;
+    return (this.nodesByPathStmt.all(path) as unknown as NodeRow[]).map(rowToNode);
+  }
+
+  /** Every node — only for the substring-match fallback in subject resolution (a full scan). */
+  allNodes(): CallGraphNode[] {
+    this.sqliteQueryCount++;
+    return (this.allNodesStmt.all() as unknown as NodeRow[]).map(rowToNode);
   }
 
   /** Outgoing edges (one indexed lookup on `edges_from`). */
@@ -262,16 +317,50 @@ export class GraphIndex implements NeighborSource {
  * 0023). Returns null when no map is initialized. Reads `context-map.json` ONCE to obtain the
  * current `mapHash`; thereafter all queries hit SQLite only.
  */
-export async function openGraphIndex(repositoryRoot: string): Promise<GraphIndex | null> {
-  const map = await readContextMap(repositoryRoot);
-  if (!map) return null;
+export async function openGraphIndex(repositoryRoot: string, map?: StaticContextMap): Promise<GraphIndex | null> {
+  const resolved = map ?? (await readContextMap(repositoryRoot));
+  if (!resolved) return null;
   const target = getGraphIndexPath(repositoryRoot);
-  if (await indexNeedsRebuild(target, map.meta.mapHash)) {
-    await buildGraphIndex(repositoryRoot, map);
+  if (await indexNeedsRebuild(target, resolved.meta.mapHash)) {
+    await buildGraphIndex(repositoryRoot, resolved);
   }
   const DatabaseSync = await loadSqlite();
   const db = new DatabaseSync(target, { readOnly: true });
-  return new GraphIndex(db, map.meta.mapHash);
+  return new GraphIndex(db, resolved.meta.mapHash);
+}
+
+// ---- Unified traversal substrate (Decision 0024) --------------------------
+
+export interface GraphContext {
+  map: StaticContextMap;
+  /** The one traversal substrate: SQLite-backed `GraphIndex` or the in-memory fallback. */
+  source: GraphSource;
+}
+
+/** Edge count at/above which opening the SQLite index is worth it (Decision 0024 — tunable heuristic). */
+export const GRAPH_INDEX_MIN_EDGES = 2000;
+
+/**
+ * Load the persisted map ONCE and return it with a `GraphSource` for all traversal (Decision 0024).
+ * Picks the SQLite-backed `GraphIndex` when the graph is large enough AND `node:sqlite` opens cleanly;
+ * otherwise the always-available in-memory source built from the JSON map. **SQLite is optional** —
+ * any open/build failure falls back, so analysis never hard-requires Node ≥ 22.5. The caller MUST call
+ * `ctx.source.close()` when done (a no-op for the in-memory source; releases the DB handle for the index).
+ */
+export async function loadGraphContext(repositoryRoot: string, opts?: { minIndexEdges?: number }): Promise<GraphContext | null> {
+  const map = await readContextMap(repositoryRoot);
+  if (!map) return null;
+  const callGraph = map.callGraph ?? { nodes: [], edges: [] };
+  const minEdges = opts?.minIndexEdges ?? GRAPH_INDEX_MIN_EDGES;
+  if (callGraph.edges.length >= minEdges) {
+    try {
+      const index = await openGraphIndex(repositoryRoot, map);
+      if (index) return { map, source: index };
+    } catch {
+      // node:sqlite unavailable or a DB error — fall through to the in-memory source.
+    }
+  }
+  return { map, source: inMemoryGraphSource(callGraph.nodes, callGraph.edges) };
 }
 
 export { getMapPath };

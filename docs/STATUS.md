@@ -16,7 +16,7 @@ grammars (`likely`), with cross-file resolution for Go (packages), Python
 (`candidate`). All **17 MCP tools** and the CLI work end-to-end (dogfooded on this
 repo). A **static path-finding subsystem** (bidirectional-BFS fewest-hop, max-bottleneck
 best-confidence, k-best, Tarjan SCC) over a **derived `graph-index.sqlite`** (built-in
-`node:sqlite`) backs indexed caller/callee/path queries (ADR 0023). **~221 tests passing**;
+`node:sqlite`) backs indexed caller/callee/path queries (ADR 0023). **~226 tests passing**;
 build/typecheck pass. Design is recorded in CAS Decisions 0001–0023. See
 [`architecture.md`](./architecture.md), [`backlog.md`](./backlog.md), and
 [`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md).
@@ -37,16 +37,17 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0023. See
 | `src/output.ts` | **Implemented.** All **17 formatters** (one per result type, incl. `formatScopePreview`) in `human_readable` / `llm_readable` / `dual` (ADR 0015). |
 | `src/pathfinding.ts` | **Implemented.** Static point-to-point path-finding over a `NeighborSource` (ADR 0023): bidirectional-BFS fewest-hop, max-bottleneck (widest-path) best-confidence, dominance-ordered k-best, iterative Tarjan SCC, structural `QueryMetrics`. Emitted confidence clamped to `likely`. |
 | `src/graphIndex.ts` | **Implemented.** Derived `graph-index.sqlite` via built-in `node:sqlite` (ADR 0023): indexed `findCallers`/`findCallees`, SCC cached once per snapshot, stamped with `mapHash`, rebuilt when missing/schema-stale/hash-stale. A disposable projection of `map.callGraph` — never a second source of truth. |
-| `test/*.test.ts` | **221 tests passing, 0 `it.todo`** across 13 files (core map, scope/exclusion, providers, derivation, findings, analysis, viz, call-stack, **pathfinding**, **graphIndex**, and a structural **benchmark** suite). |
+| `test/*.test.ts` | **226 tests passing, 0 `it.todo`** across 13 files (core map, scope/exclusion, providers, derivation, findings, analysis, viz, call-stack, **pathfinding**, **graphIndex**, and a structural **benchmark** suite). |
 | Build / typecheck | **Pass** — compiles clean under strict TypeScript. |
 | `.code-cartographer-mcp/context-map.json` | **Produced** — `initCodebase` writes it atomically (temp + fsync + rename), artifact dir gitignored. Dogfooded on this repo (509 ownership signals, 467 call edges / 157 cross-file). |
 | `.code-cartographer-mcp/graph-index.sqlite` | **Derived (ADR 0023).** A rebuildable projection of `map.callGraph` (same gitignored dir). Stamped with `mapHash`; rebuilt on mismatch. The JSON map stays the single source of truth — `mapHash`/staleness composition is unchanged. |
 
 ## Remaining work
 
-Epics A–H are implemented. PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification test (HF-5/6) findings are fixed. What's left:
+Epics A–H are implemented, plus **Epic I core** (ADR 0024). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is resolved. What's left:
 
-- **▶ NEXT — Wire the graph index as the single traversal substrate (HF-1 · Epic I · design pending ADR 0024).** The ADR-0023 path-finding + `graph-index.sqlite` subsystem is implemented and tested but **unwired**: `src/index.ts` references neither file, while `analysis.ts`/`callGraph.ts` hand-roll their own adjacency/BFS over `map.callGraph`. Make `GraphIndex`/`NeighborSource` the one traversal substrate (and optionally surface `find_path`/`find_callers` tools), wrapping results in the codebase-only envelope. Resolves review findings HF-1, MF-8, MF-9, MF-12.
+- **✅ DONE — Graph-traversal unification (HF-1 · Epic I · ADR 0024).** `analysis.ts`/`callGraph.ts` now traverse a single `GraphSource` (the SQLite `GraphIndex` for large graphs, else an in-memory fallback; SQLite optional); the two hand-rolled adjacency engines are deleted; indexed symbol/path lookups added. Resolves HF-1, MF-8, MF-9, MF-12.
+- **◻ OPTIONAL NEXT — Surface `find_path` / `find_callers` MCP tools (Epic I3)** over the shared substrate, in the codebase-only envelope — the only remaining piece to make the path-finding algorithms live in the product (they're a tested library layer today).
 - **More language-specific providers** behind the existing `LanguageProvider` interface (e.g. C#/Roslyn, deeper Python/Go), and richer findings rules.
 - **Promote draft CAS policies** (`output-mode-policy.md`, workflows, prompts) from draft → accepted now that they are realized in code.
 - **Confirm final dependency pins** (architecture D5: `typescript` is a runtime dep; confirm SDK/zod/vitest pins; bump `engines.node` to ≥ 22.5 for `node:sqlite`) before any release.
@@ -57,11 +58,11 @@ Product requirements, policies, and decisions live in the sibling **CAS** repo
 `../debug_mcp_context_manager` (see [`cas-source-of-truth.md`](./cas-source-of-truth.md)).
 This repo owns implementation only. The CAS-side current-state record is
 `context/sessions/2026-06-08_local-multireview-and-boundary-fixes.md` and
-`context/00_index/index.md`; design is recorded in ADRs 0001–0023 under
-`context/07_decisions/` (ADR 0024 — graph-index wiring — is the next planned decision).
+`context/00_index/index.md`; design is recorded in ADRs 0001–0024 under
+`context/07_decisions/` (ADR 0024 — graph-traversal unification — is implemented as Epic I core).
 
 ## Next steps
 
-1. **▶ Design the graph-index wiring (HF-1 / Epic I) → ADR 0024**, then implement test-first: make `GraphIndex`/`NeighborSource` the single traversal substrate for `analysis.ts`/`callGraph.ts`.
-2. **Polish / depth** — additional providers, findings rules, surface `find_path`/`find_callers` tools.
+1. **◻ Optional — Epic I3:** surface `find_path` / `find_callers` MCP tools over the shared `GraphSource` substrate (the path-finding algorithms are wired into the substrate but not yet exposed as tools).
+2. **Polish / depth** — additional providers, findings rules.
 3. **Release prep** — confirm dependency pins (D5), bump `engines.node` to ≥ 22.5, promote draft CAS policies to accepted.

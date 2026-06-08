@@ -1,6 +1,6 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-08 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **▶ next: Epic I** — wire the graph index as the single traversal substrate (HF-1, design pending ADR 0024); see per-epic notes below_
+_Last updated: 2026-06-08 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I core done** — graph-traversal unification (HF-1, ADR 0024); optional I3 (`find_path`/`find_callers` tools) pending; see per-epic notes below_
 
 The full tool/type **surface** is implemented (17 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
@@ -104,13 +104,12 @@ _Note: `categorizeFile` (Epic B1) was implemented early as a prerequisite for th
 - **H2.** Derived `graph-index.sqlite` (`src/graphIndex.ts`, built-in `node:sqlite`): indexed caller/callee/path queries, SCC cached once, stamped with `mapHash` and rebuilt on mismatch; the JSON map stays the single source of truth. → `CAP-23`
 - **H3.** Correctness + structural performance tests + the implementation note [`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md). _Implemented + tested but **not yet wired** into the analysis/call-graph traversal layer — see **Epic I** (HF-1)._
 
-### Epic I — Wire the graph index as the single traversal substrate (HF-1) — ▶ NEXT (design pending: ADR 0024)
-The Epic H path-finding + `graph-index.sqlite` subsystem is implemented and tested but **unwired in the product surface**: `src/index.ts` references neither file, while `analysis.ts`/`callGraph.ts` hand-roll their own adjacency/BFS over `map.callGraph` per call. The 5-dimension review of PR #1 flagged this as the top architectural finding (**HF-1**): two parallel traversal engines, the indexed one decorative, and the headline docs overclaim its integration. Goal: one traversal substrate, no overclaim.
-- **I1.** Make `GraphIndex`/`NeighborSource` the single traversal substrate — `loadAnalysisContext` (analysis.ts) and `mapCallStack` (callGraph.ts) consume `findCallers`/`findCallees` instead of rebuilding adjacency each call. → `CAP-23`, `CAP-07..16`
-- **I2.** Add symbol/path lookup indices (`Map<symbol,id[]>`/`Map<path,id[]>`, or SQLite `nodes` indexes) so `resolveTargets` stops linear-scanning the node array (review MF-8). → perf
-- **I3.** (Optional) surface `find_path` / `find_callers` MCP tools wrapping the shared substrate in the codebase-only envelope (the original Epic H "remaining work"). → `CAP-23`
-- **I4.** Wrap `GraphIndex` query returns (incl. `sameComponent`) in the `analysisBoundary`/uncertainty envelope (review MF-12); correct the headline docs that imply the index is already in use.
-- _Sequencing: **design first (ADR 0024)**, then implement test-first behind the existing codebase-only contract; resolves review findings HF-1, MF-8, MF-9, MF-12._
+### Epic I — Unify graph traversal behind `GraphSource` (HF-1, ADR 0024) — ✅ CORE DONE (I1/I2/I4); I3 optional, pending
+`analysis.ts` and `callGraph.ts` now traverse a single `GraphSource` substrate instead of two hand-rolled adjacency engines. `GraphSource` (neighbors + node lookups) has two implementations: `inMemoryGraphSource` (fallback, from the JSON map) and the SQLite-backed `GraphIndex`; `loadGraphContext` picks the index for large graphs, else the in-memory source — **SQLite is optional** (no hard Node ≥ 22.5 floor on the critical path). Resolves review findings HF-1, MF-8, MF-9, MF-12.
+- **I1.** ✅ `GraphSource` is the single substrate — `loadAnalysisContext`/`traverse` (analysis.ts) and `mapCallStack` (callGraph.ts) consume `callees`/`callers` + node lookups; hand-rolled adjacency deleted; dead `RESOLVED_KINDS` removed (A5). Reachability semantics preserved + tested (MF-4). → `CAP-23`, `CAP-07..16`
+- **I2.** ✅ Indexed symbol/path lookups (`GraphIndex` `nodes_symbol`/`nodes_path`, schema v2; `Map`s in-memory) so `resolveTargets` stops linear-scanning (review MF-8). → perf
+- **I3.** ◻ (Optional, pending) surface `find_path` / `find_callers` MCP tools wrapping the path-finding algorithms over the shared substrate in the codebase-only envelope — the only remaining piece to make `findFewestHopPath`/`findKBestPaths`/`findBestConfidencePath` live. → `CAP-23`
+- **I4.** ✅ `GraphIndex` raw query methods kept internal; the analysis/call-graph layer wraps every result in the `analysisBoundary`/uncertainty envelope; headline docs corrected (no longer imply the index was already in use).
 
 ### Epic E — Verification
 - **E1.** Fill the 25 `it.todo` tests (core + analysis + call-stack/visualization, see §3) and any added coverage.

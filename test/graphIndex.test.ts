@@ -9,6 +9,7 @@ import {
   GRAPH_INDEX_SCHEMA_VERSION,
   GraphIndex,
   indexNeedsRebuild,
+  loadGraphContext,
   openGraphIndex
 } from "../src/graphIndex.js";
 import { createMetrics, findFewestHopPath, findKBestPaths, inMemorySource } from "../src/pathfinding.js";
@@ -223,6 +224,47 @@ describe("graph index — hasNode", () => {
     expect(index!.hasNode("A")).toBe(true);
     expect(index!.hasNode("does-not-exist")).toBe(false);
     expect(index!.sqliteQueryCount).toBe(before + 2);
+  });
+});
+
+describe("graph index — node lookups (GraphSource, ADR 0024)", () => {
+  it("getNode / findNodesBySymbol / findNodesByPath / allNodes return indexed nodes", async () => {
+    await writeMap(root, "hash-v1", NODES, EDGES);
+    index = await openGraphIndex(root);
+    expect(index!.getNode("A")?.symbol).toBe("A");
+    expect(index!.getNode("missing")).toBeUndefined();
+    expect(index!.findNodesBySymbol("A").map((n) => n.id)).toEqual(["A"]);
+    expect(index!.findNodesByPath("A.ts").map((n) => n.id)).toEqual(["A"]); // node("A").path === "A.ts"
+    expect(index!.findNodesBySymbol("nope")).toEqual([]);
+    expect(index!.allNodes().map((n) => n.id).sort()).toEqual(["A", "B", "C", "Z"]);
+  });
+});
+
+describe("loadGraphContext — source selection + fallback (ADR 0024)", () => {
+  it("returns null when no map is initialized", async () => {
+    expect(await loadGraphContext(root)).toBeNull();
+  });
+
+  it("picks the in-memory source for a small graph, the SQLite index when forced, and both agree", async () => {
+    await writeMap(root, "hash-v1", NODES, EDGES);
+
+    const small = await loadGraphContext(root); // default threshold → in-memory (4 edges)
+    const forced = await loadGraphContext(root, { minIndexEdges: 0 }); // force the SQLite index
+    try {
+      expect(small!.source instanceof GraphIndex).toBe(false); // in-memory fallback
+      expect(forced!.source instanceof GraphIndex).toBe(true); // SQLite optimization
+
+      // The two substrates are interchangeable: identical neighbors + node metadata.
+      for (const id of ["A", "B", "C", "Z"]) {
+        expect(forced!.source.getNode(id)).toEqual(small!.source.getNode(id));
+        expect(forced!.source.callees(id)).toEqual(small!.source.callees(id));
+        expect(forced!.source.callers(id)).toEqual(small!.source.callers(id));
+      }
+      expect(forced!.source.findNodesBySymbol("A")).toEqual(small!.source.findNodesBySymbol("A"));
+    } finally {
+      small!.source.close();
+      forced!.source.close();
+    }
   });
 });
 
