@@ -167,3 +167,51 @@ describe("analysis classification logic (HF-5 / HF-6 regression)", () => {
     expect(drift.analysisBoundary).toBe("codebase_only");
   });
 });
+
+// Reachability semantics that the substrate swap (Decision 0024) must preserve: the depth cap
+// and the weak-edge grading. A prior review (MF-4) flagged these as uncovered.
+describe("analysis reachability — depth cap + weak-edge grading (MF-4 regression)", () => {
+  let root3: string;
+
+  beforeAll(async () => {
+    root3 = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-an3-"));
+    const N = 15; // a0 -> a1 -> ... -> a14, a chain longer than MAX_DEPTH (12)
+    let chain = "export function a0() { return a1(); }\n";
+    for (let i = 1; i < N - 1; i++) chain += `function a${i}() { return a${i + 1}(); }\n`;
+    chain += `function a${N - 1}() { return 0; }\n`;
+    const files: Record<string, string> = {
+      "src/chain.ts": chain,
+      // `entry` reaches `helper` directly and an unknown symbol via an unresolved edge.
+      "src/dyn.ts": "export function entry() { helper(); missingThing(); }\nfunction helper() { return 1; }\n"
+    };
+    for (const [rel, content] of Object.entries(files)) {
+      const full = path.join(root3, rel);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content);
+    }
+    await initCodebase(root3, { mode: "none" });
+  });
+
+  afterAll(async () => {
+    await fs.rm(root3, { recursive: true, force: true });
+  });
+
+  it("does not report nodes beyond MAX_DEPTH (12) hops from the target", async () => {
+    const r = await analyzeReachability(root3, "a0");
+    const syms = new Set(r.reachablePaths.map((p) => p.label.split(" ")[0]));
+    expect(syms.has("a1")).toBe(true); // depth 1
+    expect(syms.has("a12")).toBe(true); // depth 12 — the cap
+    expect(syms.has("a13")).toBe(false); // beyond the cap → truncated
+    expect(syms.has("a14")).toBe(false);
+  });
+
+  it("grades a node reached via an unresolved edge as not-reachable, never `likely`/`confirmed`", async () => {
+    const r = await analyzeReachability(root3, "entry");
+    const helperPath = r.reachablePaths.find((p) => p.label.startsWith("helper "));
+    expect(helperPath?.reachability).toBe("reachable"); // resolved direct edge
+    const weak = r.reachablePaths.filter((p) => p.reachability === "unresolved" || p.reachability === "possibly_reachable");
+    expect(weak.length).toBeGreaterThan(0); // the unresolved edge target
+    expect(weak.every((p) => p.confidence !== "likely" && p.confidence !== "confirmed")).toBe(true);
+    expect(r.reachablePaths.every((p) => p.confidence !== "confirmed")).toBe(true); // ADR 0016
+  });
+});

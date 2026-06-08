@@ -8,7 +8,7 @@ The CAS repository at `../debug_mcp_context_manager` owns product context, requi
 
 ## Current Implementation Status
 
-**The full product is implemented and tested (Epics A–G), plus a static path-finding + SQLite graph-index subsystem (ADR 0023).** `src/contextMap.ts`, `src/analysis.ts`, `src/callGraph.ts`, `src/visualize.ts`, `src/output.ts`, `src/scope.ts`, `src/files.ts`, `src/providers/`, `src/pathfinding.ts`, and `src/graphIndex.ts` are all implemented; `test/` holds ~221 passing tests (0 `it.todo`). `src/index.ts` registers all **17 MCP tools** (3 core map + 10 analysis + 3 call-stack/visualization, plus the scope `preview`) and the CLI, all working end-to-end. Build and typecheck pass. Design is recorded in CAS Decisions 0001–0023 — read [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md) before planning. The Operating Rules below are **product invariants** the implementation honors and must continue to.
+**The full product is implemented and tested (Epics A–G), plus a static path-finding + SQLite graph-index subsystem (ADR 0023).** `src/contextMap.ts`, `src/analysis.ts`, `src/callGraph.ts`, `src/visualize.ts`, `src/output.ts`, `src/scope.ts`, `src/files.ts`, `src/providers/`, `src/pathfinding.ts`, and `src/graphIndex.ts` are all implemented; `test/` holds ~226 passing tests (0 `it.todo`). `src/index.ts` registers all **17 MCP tools** (3 core map + 10 analysis + 3 call-stack/visualization, plus the scope `preview`) and the CLI, all working end-to-end. Build and typecheck pass. Design is recorded in CAS Decisions 0001–0023 — read [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md) before planning. The Operating Rules below are **product invariants** the implementation honors and must continue to.
 
 ## Required Context Before Planning
 
@@ -50,7 +50,7 @@ npm run build
 npm test
 ```
 
-`npm run build` / `npm run typecheck` pass; `npm test` runs the full Vitest suite (~221 tests).
+`npm run build` / `npm run typecheck` pass; `npm test` runs the full Vitest suite (~226 tests).
 
 Enable hooks once:
 

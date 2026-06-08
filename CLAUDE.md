@@ -26,13 +26,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `src/providers/` — `LanguageProvider` registry, three tiers: **TS/JS provider** (TS compiler API, one Program/checker, type-resolved cross-file → `confirmed`), **tree-sitter provider** (Python/Go/Java/Rust/Ruby/C#/C++/C via WASM grammars → `likely`; cross-file resolution for Go/Python/Rust), and the **heuristic** regex floor (`candidate`). Engine clamps each to the provider's ceiling.
 - `src/contextMap.ts` — types + map engine: `buildContextMap` (runs providers → ownership/entry hints/call graph + findings), persistence, `mapHash`/staleness, entry-point/module derivation.
 - `src/findings.ts` — D4 derivation (duplicate/legacy/risk/canonical + uncertainty register).
-- `src/analysis.ts` — the 10 capabilities (CAP-07..16) over the persisted map + call graph.
-- `src/callGraph.ts` / `src/visualize.ts` — `mapCallStack` + Mermaid/DOT/ASCII diagram specs.
-- `src/pathfinding.ts` — static point-to-point path-finding (ADR 0023): bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC; emitted confidence clamped to `likely`.
-- `src/graphIndex.ts` — derived `graph-index.sqlite` (built-in `node:sqlite`, ADR 0023): indexed caller/callee/path queries, SCC cached once, stamped with `mapHash` and rebuilt on mismatch. A disposable projection of `map.callGraph`, never a second source of truth.
+- `src/analysis.ts` — the 10 capabilities (CAP-07..16) over the persisted map, traversing a shared `GraphSource` substrate (ADR 0024) — never hand-rolled adjacency.
+- `src/callGraph.ts` / `src/visualize.ts` — `mapCallStack` (over the same `GraphSource`) + Mermaid/DOT/ASCII diagram specs.
+- `src/pathfinding.ts` — `NeighborSource`/`GraphSource` contract + `inMemoryGraphSource` fallback + static path-finding (ADR 0023): bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC; emitted confidence clamped to `likely`.
+- `src/graphIndex.ts` — derived `graph-index.sqlite` (built-in `node:sqlite`, ADR 0023/0024): a `GraphSource` with indexed caller/callee + symbol/path lookups, SCC cached once, stamped with `mapHash`, rebuilt on mismatch. `loadGraphContext` picks it for large graphs, else the in-memory fallback (SQLite optional). A disposable projection of `map.callGraph`, never a second source of truth.
 - `src/output.ts` — 17 formatters (human/llm/dual).
 
-~221 tests passing; build/typecheck pass. Decisions 0001–0023 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
+~226 tests passing; build/typecheck pass. Decisions 0001–0024 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
 
 ## Architecture
 

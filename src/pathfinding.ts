@@ -5,7 +5,7 @@
 // clamped to `likely` (Decision 0016): a static path is never `confirmed` runtime truth.
 
 import { clampConfidence, type Confidence } from "./contextMap.js";
-import type { CallEdge } from "./callGraph.js";
+import type { CallEdge, CallGraphNode } from "./callGraph.js";
 
 /** Strength ordering (higher = stronger), mirrors contextMap's CONFIDENCE_RANK. */
 const CONFIDENCE_RANK: Record<Confidence, number> = {
@@ -87,6 +87,49 @@ export function inMemorySource(edges: CallEdge[]): NeighborSource {
   return {
     callees: (id) => fwd.get(id) ?? [],
     callers: (id) => rev.get(id) ?? []
+  };
+}
+
+// ---- Graph source: neighbors + node lookups (Decision 0024) -----------------
+
+/**
+ * A `NeighborSource` enriched with node-metadata lookups, so the analysis and
+ * call-graph layers traverse ONE substrate (Decision 0024). Two implementations:
+ * `inMemoryGraphSource` (from the JSON map — the guaranteed fallback) and the
+ * SQLite-backed `GraphIndex` (the optimization). SQLite is optional, never required.
+ */
+export interface GraphSource extends NeighborSource {
+  /** Node metadata by id, or undefined if absent. */
+  getNode(id: string): CallGraphNode | undefined;
+  /** Nodes whose `symbol` equals the query (indexed lookup, not a scan). */
+  findNodesBySymbol(symbol: string): CallGraphNode[];
+  /** Nodes whose `path` equals the query (indexed lookup, not a scan). */
+  findNodesByPath(path: string): CallGraphNode[];
+  /** Every node — only for the substring-match fallback in subject resolution. */
+  allNodes(): CallGraphNode[];
+  /** Release held resources (a DB handle for the index; a no-op in-memory). */
+  close(): void;
+}
+
+/** Build an in-memory `GraphSource` from a call graph — the guaranteed fallback (Decision 0024). */
+export function inMemoryGraphSource(nodes: CallGraphNode[], edges: CallEdge[]): GraphSource {
+  const neighbors = inMemorySource(edges);
+  const byId = new Map<string, CallGraphNode>();
+  const bySymbol = new Map<string, CallGraphNode[]>();
+  const byPath = new Map<string, CallGraphNode[]>();
+  for (const n of nodes) {
+    byId.set(n.id, n);
+    (bySymbol.get(n.symbol) ?? bySymbol.set(n.symbol, []).get(n.symbol)!).push(n);
+    (byPath.get(n.path) ?? byPath.set(n.path, []).get(n.path)!).push(n);
+  }
+  return {
+    callees: neighbors.callees,
+    callers: neighbors.callers,
+    getNode: (id) => byId.get(id),
+    findNodesBySymbol: (symbol) => bySymbol.get(symbol) ?? [],
+    findNodesByPath: (path) => byPath.get(path) ?? [],
+    allNodes: () => nodes,
+    close: () => {}
   };
 }
 
