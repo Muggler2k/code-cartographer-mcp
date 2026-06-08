@@ -111,6 +111,17 @@ export interface GraphSource extends NeighborSource {
   close(): void;
 }
 
+/** Resolve a free-text subject to node ids over a `GraphSource`: id → symbol → path → substring. */
+export function resolveNodeIds(source: GraphSource, query: string): string[] {
+  if (source.getNode(query)) return [query];
+  const bySymbol = source.findNodesBySymbol(query).map((n) => n.id);
+  if (bySymbol.length > 0) return bySymbol;
+  const byPath = source.findNodesByPath(query).map((n) => n.id);
+  if (byPath.length > 0) return byPath;
+  const q = query.toLowerCase();
+  return source.allNodes().filter((n) => n.symbol.toLowerCase().includes(q) || n.path.toLowerCase().includes(q)).map((n) => n.id);
+}
+
 /** Build an in-memory `GraphSource` from a call graph — the guaranteed fallback (Decision 0024). */
 export function inMemoryGraphSource(nodes: CallGraphNode[], edges: CallEdge[]): GraphSource {
   const neighbors = inMemorySource(edges);

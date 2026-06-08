@@ -37,7 +37,7 @@ These bound every design choice and must survive the rebuild:
 The implemented layering:
 
 ```
-src/index.ts      MCP wiring: 17 tools + CLI (transport, dispatch)   [done]
+src/index.ts      MCP wiring: 19 tools + CLI (transport, dispatch)   [done]
 src/scope.ts      scope/exclusion: 4 modes, walk, preview (ADR 0009) [done]
 src/files.ts      hashFile + categorizeFile (ADR 0010)               [done]
 src/providers/    LanguageProvider registry + TS/tree-sitter/heur.   [done]

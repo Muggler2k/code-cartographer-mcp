@@ -23,7 +23,7 @@ import {
 } from "./contextMap.js";
 import type { CallGraphNode } from "./callGraph.js";
 import { loadGraphContext } from "./graphIndex.js";
-import type { GraphSource, NeighborSource } from "./pathfinding.js";
+import { resolveNodeIds, type GraphSource, type NeighborSource } from "./pathfinding.js";
 
 /**
  * Structural (codebase-only) reachability grade — never a runtime proof.
@@ -169,15 +169,9 @@ const RUNTIME_UNCERTAINTY: UncertaintyItem = {
   requiredConfirmation: "Runtime trace / test execution (out of scope)."
 };
 
-/** Resolve a free-text subject to matching call-graph node ids (exact id → symbol → path → substring). */
+/** Resolve a free-text subject to matching call-graph node ids (shared with the path-query tools). */
 function resolveTargets(source: GraphSource, query: string): string[] {
-  if (source.getNode(query)) return [query];
-  const bySymbol = source.findNodesBySymbol(query).map((n) => n.id);
-  if (bySymbol.length > 0) return bySymbol;
-  const byPath = source.findNodesByPath(query).map((n) => n.id);
-  if (byPath.length > 0) return byPath;
-  const q = query.toLowerCase();
-  return source.allNodes().filter((n) => n.symbol.toLowerCase().includes(q) || n.path.toLowerCase().includes(q)).map((n) => n.id);
+  return resolveNodeIds(source, query);
 }
 
 function nodeLabel(source: GraphSource, id: string): string {

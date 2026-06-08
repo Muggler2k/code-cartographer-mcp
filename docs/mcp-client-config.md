@@ -20,7 +20,7 @@ Use this stdio configuration shape:
 }
 ```
 
-> Status: the server registers all 17 tools and they are implemented end-to-end (see [`STATUS.md`](STATUS.md)). The build/config snippet above is correct and usable.
+> Status: the server registers all 19 tools and they are implemented end-to-end (see [`STATUS.md`](STATUS.md)). The build/config snippet above is correct and usable.
 
 The server registers these tools (intended purposes). All are codebase-only; the analysis tools require an initialized map:
 

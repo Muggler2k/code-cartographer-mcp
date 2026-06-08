@@ -22,6 +22,7 @@ import {
   reviewPreflight
 } from "./analysis.js";
 import { mapCallStack } from "./callGraph.js";
+import { findCallers, findPath } from "./pathQueries.js";
 import { visualizeArchitecture, visualizeCallStack } from "./visualize.js";
 import { previewScope, type ExclusionConfig, type ExclusionMode } from "./scope.js";
 import {
@@ -34,6 +35,8 @@ import {
   formatContextSummary,
   formatDuplicateBehavior,
   formatFailureInvestigation,
+  formatFindCallers,
+  formatFindPath,
   formatInitResult,
   formatInitStatus,
   formatLegacyClassification,
@@ -144,6 +147,32 @@ server.registerTool(
   async ({ repositoryRoot, target, outputMode }) => {
     const result = await analyzeReachability(repositoryRoot, target);
     return textResult(formatReachability(result, normalizeOutputMode(outputMode)));
+  }
+);
+
+server.registerTool(
+  "find_callers",
+  {
+    title: "Find callers",
+    description: "Return the direct static callers of a symbol over the call graph, confidence-graded and codebase-only. Dynamic/DI/framework/reflection callers are graded down; never a runtime-proven caller set.",
+    inputSchema: { repositoryRoot, symbol: z.string().describe("Symbol, function, or file whose callers to list."), outputMode }
+  },
+  async ({ repositoryRoot, symbol, outputMode }) => {
+    const result = await findCallers(repositoryRoot, symbol);
+    return textResult(formatFindCallers(result, normalizeOutputMode(outputMode)));
+  }
+);
+
+server.registerTool(
+  "find_path",
+  {
+    title: "Find static path",
+    description: "Return static call paths between two symbols — the fewest-hop path and the best-confidence (widest-path) path. Codebase-only and confidence-graded (clamped to `likely`); a static path, never a runtime stack/trace.",
+    inputSchema: { repositoryRoot, from: z.string().describe("Source symbol/file."), to: z.string().describe("Target symbol/file."), outputMode }
+  },
+  async ({ repositoryRoot, from, to, outputMode }) => {
+    const result = await findPath(repositoryRoot, from, to);
+    return textResult(formatFindPath(result, normalizeOutputMode(outputMode)));
   }
 );
 
@@ -345,7 +374,7 @@ const CLI_USAGE =
   "Usage: code-cartographer-mcp <command> <repositoryRoot> [subject] [--llm|--dual]\n" +
   "  commands: preview | init | status | summary | reachability | duplicates | legacy |\n" +
   "            impact | preflight | review | ownership | failure | test-paths | drift |\n" +
-  "            callstack | viz-callstack | viz-arch\n" +
+  "            callstack | find-callers | find-path <from> <to> | viz-callstack | viz-arch\n" +
   "  scope flags (preview|init): --mode=<auto|gitignore|language|none> --lang=<name> (repeatable)";
 
 async function runCli(args: string[]): Promise<void> {
@@ -422,6 +451,15 @@ async function runCli(args: string[]): Promise<void> {
     case "callstack":
       console.log(formatCallStack(await mapCallStack(root, needsSubject("callstack")), mode));
       return;
+    case "find-callers":
+      console.log(formatFindCallers(await findCallers(root, needsSubject("find-callers")), mode));
+      return;
+    case "find-path": {
+      const to = positionals[3];
+      if (!subject || !to) throw new Error(`Command "find-path" requires <from> and <to> arguments. ${CLI_USAGE}`);
+      console.log(formatFindPath(await findPath(root, subject, to), mode));
+      return;
+    }
     case "viz-callstack":
       console.log(formatCallStackVisualization(await visualizeCallStack(root, needsSubject("viz-callstack")), mode));
       return;

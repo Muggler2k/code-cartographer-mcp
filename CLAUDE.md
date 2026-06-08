@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status: implemented (Epics A–G)
 
-**The full product is implemented and tested.** `init_codebase` builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real `.code-cartographer-mcp/context-map.json` that carries files, languages, entry points, modules, ownership signals, a **static call graph** (provider-extracted), and confidence-graded findings. The **17 MCP tools** and the CLI all work end-to-end. Source layout:
+**The full product is implemented and tested.** `init_codebase` builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real `.code-cartographer-mcp/context-map.json` that carries files, languages, entry points, modules, ownership signals, a **static call graph** (provider-extracted), and confidence-graded findings. The **19 MCP tools** and the CLI all work end-to-end. Source layout:
 
 - `src/scope.ts` — scope/exclusion (4 modes, gitignore via `ignore`, preview→confirm).
 - `src/files.ts` — `hashFile` (cap→metadata, binary sniff) + `categorizeFile`.
@@ -28,11 +28,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `src/findings.ts` — D4 derivation (duplicate/legacy/risk/canonical + uncertainty register).
 - `src/analysis.ts` — the 10 capabilities (CAP-07..16) over the persisted map, traversing a shared `GraphSource` substrate (ADR 0024) — never hand-rolled adjacency.
 - `src/callGraph.ts` / `src/visualize.ts` — `mapCallStack` (over the same `GraphSource`) + Mermaid/DOT/ASCII diagram specs.
-- `src/pathfinding.ts` — `NeighborSource`/`GraphSource` contract + `inMemoryGraphSource` fallback + static path-finding (ADR 0023): bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC; emitted confidence clamped to `likely`.
+- `src/pathfinding.ts` — `NeighborSource`/`GraphSource` contract + `inMemoryGraphSource` fallback + `resolveNodeIds` + static path-finding (ADR 0023): bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC; emitted confidence clamped to `likely`.
 - `src/graphIndex.ts` — derived `graph-index.sqlite` (built-in `node:sqlite`, ADR 0023/0024): a `GraphSource` with indexed caller/callee + symbol/path lookups, SCC cached once, stamped with `mapHash`, rebuilt on mismatch. `loadGraphContext` picks it for large graphs, else the in-memory fallback (SQLite optional). A disposable projection of `map.callGraph`, never a second source of truth.
-- `src/output.ts` — 17 formatters (human/llm/dual).
+- `src/pathQueries.ts` — the `find_callers` / `find_path` capabilities (ADR 0024/0023): surface the path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped results.
+- `src/output.ts` — 19 formatters (human/llm/dual).
 
-~226 tests passing; build/typecheck pass. Decisions 0001–0024 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
+~231 tests passing; build/typecheck pass. Decisions 0001–0024 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
 
 ## Architecture
 
@@ -40,14 +41,14 @@ This is an MCP server that produces **static, codebase-only** context maps of a 
 
 Source files:
 
-- `src/index.ts` — entry point. Registers all **17 MCP tools** (3 core map + 10 analysis + 3 call-stack/visualization, plus the scope `preview`) on an `McpServer`. The same `main()` doubles as a CLI: if `process.argv` has extra args it dispatches `runCli` (`preview`/`init`/`status`/`summary`/`reachability`/`duplicates`/`legacy`/`impact`/`preflight`/`review`/`ownership`/`failure`/`test-paths`/`drift`/`callstack`/`viz-callstack`/`viz-arch`); otherwise it connects a `StdioServerTransport`. Each tool calls an engine/analysis function and formats via `output`.
+- `src/index.ts` — entry point. Registers all **19 MCP tools** (3 core map + 10 analysis + 3 call-stack/visualization + 2 path queries (`find_callers`/`find_path`), plus the scope `preview`) on an `McpServer`. The same `main()` doubles as a CLI: if `process.argv` has extra args it dispatches `runCli` (`preview`/`init`/`status`/`summary`/`reachability`/`duplicates`/`legacy`/`impact`/`preflight`/`review`/`ownership`/`failure`/`test-paths`/`drift`/`callstack`/`find-callers`/`find-path`/`viz-callstack`/`viz-arch`); otherwise it connects a `StdioServerTransport`. Each tool calls an engine/analysis function and formats via `output`.
 - `src/contextMap.ts` — core type system + map engine. The full shared vocabulary (`Confidence`, 3-mode `OutputMode`, 5-state `InitState`, six-field `Finding`, `Recommendation`, path/legacy/impact substructures), the `StaticContextMap` shape, and the engine: `buildContextMap` walks the repo (skipping `EXCLUDED_DIRS`), categorizes files, runs providers, derives the map; `initCodebase` writes `.code-cartographer-mcp/context-map.json`; `checkInitState` compares `mapHash` + `schemaVersion` to detect `stale`. Component model + open decisions: [`docs/architecture.md`](docs/architecture.md).
 - `src/analysis.ts` — analytical capabilities (CAP-07..16). Result types + 10 functions (reachability, duplicate, legacy, change-impact, preflight, change-review, ownership, failure, test-paths, drift). All require an initialized map; reachability/impact/failure return evidence-graded hypotheses with explicit uncertainty, never runtime proof.
 - `src/callGraph.ts` — static call-stack mapping (CAP-23). Call-graph types + `mapCallStack`. A **static**, confidence-graded call graph (dynamic/DI/framework/reflection edges → `candidate`/`unresolved`), never a runtime trace.
 - `src/visualize.ts` — visualization (CAP-24/25). `Visualization` (mermaid/dot/ascii) + `visualizeCallStack` / `visualizeArchitecture`. Returns a diagram **spec** the client renders, never an image; carries a confidence/edge-kind legend.
 - `src/pathfinding.ts` — static path-finding (ADR 0023). Pure algorithms over a `NeighborSource`: bidirectional-BFS fewest-hop, max-bottleneck (widest-path) best-confidence, dominance-ordered k-best, iterative Tarjan SCC. Static path / possible path / reachability path — never a runtime stack; emitted confidence clamped to `likely`.
 - `src/graphIndex.ts` — derived SQLite graph index (ADR 0023). `graph-index.sqlite` via built-in `node:sqlite` (Node ≥ 22.5; no third-party dep). Indexed `findCallers`/`findCallees`, SCC built once per snapshot. A projection of `map.callGraph` stamped with `mapHash` and rebuilt on mismatch — the JSON map stays the single source of truth; `mapHash`/staleness composition (ADR 0011) is unchanged.
-- `src/output.ts` — formatting only. 17 formatters, one per result type, each rendering in `human_readable`, `llm_readable`, or `dual`, kept in sync with the result shapes and preserving confidence + uncertainty.
+- `src/output.ts` — formatting only. 19 formatters, one per result type, each rendering in `human_readable`, `llm_readable`, or `dual`, kept in sync with the result shapes and preserving confidence + uncertainty.
 
 Persisted artifact: `<repo>/.code-cartographer-mcp/context-map.json` — written atomically (temp + fsync + rename) with the artifact dir gitignored (ADR 0011). Staleness (ADR 0011) is two-tier: a cheap fingerprint (per-file `sizeBytes`+`mtimeMs`, `fileCount`, `scopeHash`, `schemaVersion`) short-circuits to `fresh`; if it differs, files are rehashed and `mapHash` (= sha256 of `schemaVersion` + `scopeHash` + sorted file-identity records) is compared to flip to `stale`. The `schemaVersion` value is **resolved** (ADR 0008: `1`) — `SCHEMA_VERSION = 1` in `src/contextMap.ts`, with provenance grouped under `MapMeta`, `summary.languages`/`summary.excluded` (incl. `scopeHash`), and `FileEntry` carrying `hashScope`/`analyzable`/`analysisReason`/`mtimeMs` (ADRs 0010/0011).
 
