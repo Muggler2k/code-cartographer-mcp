@@ -7,7 +7,7 @@ vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered
 dependency-aware work behind that contract and a local index of the CAS
 requirements each task serves. CAS (`../debug_mcp_context_manager/context/`) remains the source of
 truth; this file mirrors the requirement IDs locally so a session can plan
-without leaving the repo. Component IDs (`C1`–`C12`) are defined in
+without leaving the repo. Component IDs (`C1`–`C13`) are defined in
 [`architecture.md`](./architecture.md).
 
 > Sequencing rule: do not start an epic until its design decisions

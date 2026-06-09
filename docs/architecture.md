@@ -4,7 +4,7 @@ _Last updated: 2026-06-08 · Status: **design ratified and implemented** (decisi
 
 This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
-all of which are now **resolved and implemented** (Epics A–G; ADRs 0008–0023,
+all of which are now **resolved and implemented** (Epics A–I; ADRs 0008–0024,
 incl. the static path-finding + derived SQLite graph index of ADR 0023).
 The decision table in §5 carries the resolution for each open question; D5
 (dependency pins) is the only item with a residual release-prep tail.
@@ -43,11 +43,12 @@ src/files.ts      hashFile + categorizeFile (ADR 0010)               [done]
 src/providers/    LanguageProvider registry + TS/tree-sitter/heur.   [done]
 src/contextMap.ts core types + map engine (build/persist/compare)    [done]
 src/findings.ts   D4 findings derivation (ADR 0017)                  [done]
-src/analysis.ts   analysis capability types + functions (CAP-07..16) [done]
-src/callGraph.ts  static call-graph types + mapCallStack (CAP-23)    [done]
+src/analysis.ts   analysis capabilities over a GraphSource (ADR 0024)[done]
+src/callGraph.ts  static call-graph + mapCallStack over GraphSource   [done]
 src/visualize.ts  visualization types + functions (CAP-24/25)        [done]
-src/pathfinding.ts static path-finding (BFS/widest/k-best/SCC) 0023  [done]
-src/graphIndex.ts derived graph-index.sqlite (node:sqlite) ADR 0023  [done]
+src/pathfinding.ts GraphSource contract + path-finding (ADR 0023/24) [done]
+src/graphIndex.ts graph-index.sqlite GraphSource (ADR 0023/0024)     [done]
+src/pathQueries.ts find_callers / find_path over GraphSource (0024)  [done]
 src/output.ts     formatting: results -> human / llm / dual          [done]
 ```
 
@@ -66,7 +67,8 @@ Components inside the engine (all implemented):
 | C9 | **Persistence** | Write/read `.code-cartographer-mcp/context-map.json` | `CAP-01`, `CAP-17` |
 | C10 | **Formatters** | `StaticContextMap` → markdown / JSON, kept in sync with the schema | `CAP-03`, `CAP-18`, `CAP-19`, `CAP-20` |
 | C11 | **Language providers** | Pluggable per-language extraction of ownership signals, entry-point hints, and static call edges; tiered confidence ceiling (ADR 0012/0013). Three tiers: TS/JS compiler-API (`confirmed`), tree-sitter for 8 languages (`likely`, cross-file for Go/Python/Rust — ADR 0021/0022), heuristic floor (`candidate`). Feeds C5/C7/C8 and the call graph. | `CAP-13`, `CAP-08`, `CAP-23` |
-| C12 | **Path-finding + graph index** | Static point-to-point path-finding (`src/pathfinding.ts`: bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC) over a derived `graph-index.sqlite` (`src/graphIndex.ts`, built-in `node:sqlite`). Index is a rebuildable projection of the call graph stamped with `mapHash`; emitted path confidence clamped to `likely`. Codebase-only — no runtime trace (ADR 0023). | `CAP-23`, `CAP-07` |
+| C12 | **Graph traversal substrate** | The one traversal substrate (ADR 0024): a `GraphSource` (neighbors + node lookups) with two implementations — `inMemoryGraphSource` (fallback, from the JSON map) and the SQLite `graph-index.sqlite` (`src/graphIndex.ts`, built-in `node:sqlite`). `loadGraphContext` picks the index for large graphs, else in-memory — **SQLite optional**. `analysis.ts`/`callGraph.ts` traverse it (no hand-rolled adjacency). Path-finding (`src/pathfinding.ts`: bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC) runs over it; emitted path confidence clamped to `likely`. Index is a rebuildable projection stamped with `mapHash`. Codebase-only — no runtime trace (ADR 0023/0024). | `CAP-23`, `CAP-07` |
+| C13 | **Path queries** | `find_callers` / `find_path` MCP tools (`src/pathQueries.ts`) surfacing the C12 path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results (ADR 0024). | `CAP-23`, `CAP-07` |
 
 A **static call graph** is now in scope as shared substrate (`CAP-23`, ADR 0007):
 `src/callGraph.ts` maps a confidence-graded static call stack from an entry point,
