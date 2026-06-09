@@ -4,7 +4,7 @@ _Last updated: 2026-06-08_
 
 ## TL;DR
 
-**The full product is implemented and tested (Epics A–G).** `init_codebase`
+**The full product is implemented and tested (Epics A–I).** `init_codebase`
 builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real
 `.code-cartographer-mcp/context-map.json` carrying files, languages, entry points,
 modules, ownership signals, a provider-extracted **static call graph**, and
@@ -17,7 +17,7 @@ grammars (`likely`), with cross-file resolution for Go (packages), Python
 repo). A **static path-finding subsystem** (bidirectional-BFS fewest-hop, max-bottleneck
 best-confidence, k-best, Tarjan SCC) over a **derived `graph-index.sqlite`** (built-in
 `node:sqlite`) backs indexed caller/callee/path queries (ADR 0023). **~231 tests passing**;
-build/typecheck pass. Design is recorded in CAS Decisions 0001–0023. See
+build/typecheck pass. Design is recorded in CAS Decisions 0001–0024. See
 [`architecture.md`](./architecture.md), [`backlog.md`](./backlog.md), and
 [`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md).
 
@@ -31,13 +31,14 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0023. See
 | `src/files.ts` | **Implemented.** `hashFile` (per-file SHA-256 + size, 5 MB cap→metadata hash, binary sniff, `analyzable`/`analysisReason`; ADR 0010) + `categorizeFile`. |
 | `src/providers/` | **Implemented.** `LanguageProvider` registry + three tiers: TS/JS provider (TS compiler API, type-resolved cross-file → `confirmed`), tree-sitter provider (Python/Go/Java/Rust/Ruby/C#/C++/C via WASM grammars → `likely`; cross-file resolution for Go/Python/Rust), and the heuristic regex floor (`candidate`). Engine clamps each to the provider's ceiling. (ADRs 0012/0013/0018/0021/0022.) |
 | `src/findings.ts` | **Implemented.** D4 derivation (ADR 0017): duplicate / legacy (six-class, never dead) / risk / canonical + D3 parallel modules + R3 bypassed abstraction, all ≤ `candidate` with in-record uncertainty. |
-| `src/analysis.ts` | **Implemented.** The **10 capability functions** for CAP-07..16 (reachability, duplicate, legacy, change-impact, preflight, change-review, ownership, failure, test-paths, drift) over the persisted map + call graph; init-gated, confidence-capped, uncertainty-explicit (ADR 0019). |
-| `src/callGraph.ts` | **Implemented.** Static call-graph types + `mapCallStack` (CAP-23) over the persisted call graph; dynamic/DI/framework/reflection edges → `candidate`/`unresolved`. |
+| `src/analysis.ts` | **Implemented.** The **10 capability functions** for CAP-07..16 (reachability, duplicate, legacy, change-impact, preflight, change-review, ownership, failure, test-paths, drift) over the persisted map, traversing a shared `GraphSource` (ADR 0024) — never hand-rolled adjacency; init-gated, confidence-capped, uncertainty-explicit (ADR 0019). |
+| `src/callGraph.ts` | **Implemented.** Static call-graph types + `mapCallStack` (CAP-23) over the shared `GraphSource` (ADR 0024); dynamic/DI/framework/reflection edges → `candidate`/`unresolved`. |
 | `src/visualize.ts` | **Implemented.** `Visualization` (mermaid/dot/ascii) + `visualizeCallStack` (CAP-24) and `visualizeArchitecture` (CAP-25) — emit diagram **specs**, never rendered images (ADR 0020). |
 | `src/output.ts` | **Implemented.** All **19 formatters** (one per result type, incl. `formatScopePreview`) in `human_readable` / `llm_readable` / `dual` (ADR 0015). |
-| `src/pathfinding.ts` | **Implemented.** Static point-to-point path-finding over a `NeighborSource` (ADR 0023): bidirectional-BFS fewest-hop, max-bottleneck (widest-path) best-confidence, dominance-ordered k-best, iterative Tarjan SCC, structural `QueryMetrics`. Emitted confidence clamped to `likely`. |
-| `src/graphIndex.ts` | **Implemented.** Derived `graph-index.sqlite` via built-in `node:sqlite` (ADR 0023): indexed `findCallers`/`findCallees`, SCC cached once per snapshot, stamped with `mapHash`, rebuilt when missing/schema-stale/hash-stale. A disposable projection of `map.callGraph` — never a second source of truth. |
-| `test/*.test.ts` | **231 tests passing, 0 `it.todo`** across 14 files (core map, scope/exclusion, providers, derivation, findings, analysis, viz, call-stack, **pathfinding**, **graphIndex**, and a structural **benchmark** suite). |
+| `src/pathfinding.ts` | **Implemented.** The `NeighborSource`/`GraphSource` contract + `inMemoryGraphSource` fallback + `resolveNodeIds` + static point-to-point path-finding (ADR 0023/0024): bidirectional-BFS fewest-hop, max-bottleneck (widest-path) best-confidence, dominance-ordered k-best, iterative Tarjan SCC, structural `QueryMetrics`. Emitted confidence clamped to `likely`. |
+| `src/graphIndex.ts` | **Implemented.** A `GraphSource` backed by `graph-index.sqlite` (built-in `node:sqlite`, ADR 0023/0024): indexed caller/callee + `nodes_symbol`/`nodes_path` lookups, SCC cached once, stamped with `mapHash`, rebuilt when missing/schema-stale/hash-stale. `loadGraphContext` picks it for large graphs, else the in-memory fallback (SQLite optional). A disposable projection of `map.callGraph` — never a second source of truth. |
+| `src/pathQueries.ts` | **Implemented (ADR 0024).** The `find_callers` / `find_path` capabilities surfacing the path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results. |
+| `test/*.test.ts` | **231 tests passing, 0 `it.todo`** across 14 files (core map, scope/exclusion, providers, derivation, findings, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, and a structural **benchmark** suite). |
 | Build / typecheck | **Pass** — compiles clean under strict TypeScript. |
 | `.code-cartographer-mcp/context-map.json` | **Produced** — `initCodebase` writes it atomically (temp + fsync + rename), artifact dir gitignored. Dogfooded on this repo (509 ownership signals, 467 call edges / 157 cross-file). |
 | `.code-cartographer-mcp/graph-index.sqlite` | **Derived (ADR 0023).** A rebuildable projection of `map.callGraph` (same gitignored dir). Stamped with `mapHash`; rebuilt on mismatch. The JSON map stays the single source of truth — `mapHash`/staleness composition is unchanged. |
@@ -56,7 +57,7 @@ Epics A–I are implemented (ADR 0024 graph-traversal unification). PR #1 (the g
 Product requirements, policies, and decisions live in the sibling **CAS** repo
 `../debug_mcp_context_manager` (see [`cas-source-of-truth.md`](./cas-source-of-truth.md)).
 This repo owns implementation only. The CAS-side current-state record is
-`context/sessions/2026-06-08_local-multireview-and-boundary-fixes.md` and
+`context/sessions/2026-06-08_epic-i-graphsource-wiring.md` and
 `context/00_index/index.md`; design is recorded in ADRs 0001–0024 under
 `context/07_decisions/` (ADR 0024 — graph-traversal unification — is implemented as Epic I).
 
