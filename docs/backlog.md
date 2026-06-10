@@ -1,6 +1,6 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-08 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; see per-epic notes below_
+_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); see per-epic notes below_
 
 The full tool/type **surface** is implemented (19 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
@@ -110,6 +110,13 @@ _Note: `categorizeFile` (Epic B1) was implemented early as a prerequisite for th
 - **I2.** ✅ Indexed symbol/path lookups (`GraphIndex` `nodes_symbol`/`nodes_path`, schema v2; `Map`s in-memory) so `resolveTargets` stops linear-scanning (review MF-8). → perf
 - **I3.** ✅ `find_callers` / `find_path` MCP tools (`src/pathQueries.ts` + formatters + CLI) wrap the path-finding algorithms over the shared substrate in the codebase-only envelope (`likely`-clamped) — `findFewestHopPath`/`findBestConfidencePath`/`findKBestPaths` are now live in the product (19 tools total). → `CAP-23`
 - **I4.** ✅ `GraphIndex` raw query methods kept internal; the analysis/call-graph layer wraps every result in the `analysisBoundary`/uncertainty envelope; headline docs corrected (no longer imply the index was already in use).
+
+### Epic J — Internal seams: analysis context, tool table, schema split, fixtures (ADR 0025) — ✅ DONE (J1–J4)
+A post-Epic-I architecture review surfaced four internal-friction findings; ADR 0025 reorganized the implementation around them. Product surface (19 tools, CLI commands, output formats, schema v1) byte-compatible.
+- **J1.** ✅ `src/schema.ts` — the behavior-free shared type vocabulary, split from the map engine (`contextMap.ts` keeps build/persist/staleness/derivation behind init/status/read). Pure file move; schema v1 (ADR 0008) and mapHash/staleness (ADR 0011) unchanged.
+- **J2.** ✅ `src/analysisContext.ts` — one `withContext` envelope (load → init-guard → close, ADR 0024 lifecycle) for all 13 graph-query capabilities; `makeAnalysisContext` makes the `GraphSource` seam injectable (capabilities take `AnalysisTarget`); `reviewPreflight`/`visualizeArchitecture` compose sub-capabilities over ONE shared context; close-ownership pinned by tests (never close an injected context). → `CAP-07..16`, `CAP-23`
+- **J3.** ✅ `src/tools.ts` — declarative table of 19 tool specs; MCP registration and CLI dispatch become two adapters over it (`registerTools` / `findCliSpec`+`cliArgs`); usage derives from the table; the previously-uncovered `index.ts` surface gains table + CLI-mapping + execute round-trip tests.
+- **J4.** ✅ `test/helpers/fixtures.ts` — shared `tempRepos` factory + `testContextMap`/`testFileEntry`/`testNode`/`testEdge` builders; the five files that hand-rolled mkdtemp fixtures and the two hand-written map literals now build on it. 253 tests / 16 files.
 
 ### Epic E — Verification
 - **E1.** Fill the 25 `it.todo` tests (core + analysis + call-stack/visualization, see §3) and any added coverage.
