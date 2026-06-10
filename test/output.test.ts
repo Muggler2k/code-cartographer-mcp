@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { InitResult, InitStatusResult } from "../src/contextMap.js";
-import type { FileEntry, OutputMode, StaticContextMap } from "../src/schema.js";
+import type { OutputMode, StaticContextMap } from "../src/schema.js";
+import { testContextMap, testFileEntry } from "./helpers/fixtures.js";
 import type {
   ArchitectureDriftResult,
   ChangeImpactResult,
@@ -74,59 +75,22 @@ describe("formatScopePreview (A3d, output-mode policy + ADR 0015)", () => {
 
 // ---- All result formatters (Epic D) ----
 
-function fileEntry(path: string): FileEntry {
-  return {
-    path,
-    category: "source",
-    sizeBytes: 1,
-    sha256: "h",
-    hashScope: "content",
-    analyzable: true,
-    analysisReason: "text source",
-    mtimeMs: 0
-  };
-}
-
 function minimalMap(): StaticContextMap {
-  return {
-    meta: {
-      schemaVersion: 1,
-      toolVersion: "0.1.0",
-      generatedAt: "2026-06-07T00:00:00.000Z",
-      repositoryRoot: "/repo",
-      mapHash: "deadbeef",
-      codebaseOnlyBoundary: true
-    },
-    summary: {
-      totalFiles: 1,
-      categories: { source: 1, test: 0, config: 0, documentation: 0, context: 0, generated: 0, other: 0 },
-      languages: { ts: 1 },
-      importantFiles: ["src/index.ts"],
-      entryPoints: [{ path: "src/index.ts", kind: "source_entry", confidence: "likely", reason: "conventional entry" }],
-      modules: [{ name: "src", root: "src", category: "source", files: ["src/index.ts"] }],
-      ownershipSignals: [
-        { symbol: "main", kind: "function", path: "src/index.ts", exported: true, confidence: "confirmed", reason: "exported" }
-      ],
-      excluded: {
-        source: "none",
-        languages: [],
-        excludeDirs: [],
-        patterns: [],
-        scopeHash: "s",
-        dirs: [],
-        fileCount: 0
-      }
-    },
-    files: [fileEntry("src/index.ts")],
-    callGraph: { nodes: [], edges: [] },
-    findings: {
-      canonicalPaths: [{ id: "c1", label: "canonical", confidence: "likely", evidence: ["e"], risks: [] }],
-      duplicatePathCandidates: [],
-      legacyPathCandidates: [],
-      riskAreas: [],
-      uncertainty: [{ item: "x", reason: "static-only", requiredConfirmation: "runtime check" }]
-    }
+  const map = testContextMap({ files: [testFileEntry("src/index.ts")] });
+  map.summary = {
+    ...map.summary,
+    categories: { ...map.summary.categories, source: 1 },
+    languages: { ts: 1 },
+    importantFiles: ["src/index.ts"],
+    entryPoints: [{ path: "src/index.ts", kind: "source_entry", confidence: "likely", reason: "conventional entry" }],
+    modules: [{ name: "src", root: "src", category: "source", files: ["src/index.ts"] }],
+    ownershipSignals: [
+      { symbol: "main", kind: "function", path: "src/index.ts", exported: true, confidence: "confirmed", reason: "exported" }
+    ]
   };
+  map.findings.canonicalPaths = [{ id: "c1", label: "canonical", confidence: "likely", evidence: ["e"], risks: [] }];
+  map.findings.uncertainty = [{ item: "x", reason: "static-only", requiredConfirmation: "runtime check" }];
+  return map;
 }
 
 const uncertainty = [{ item: "runtime path", reason: "static-only", requiredConfirmation: "execute to confirm" }];

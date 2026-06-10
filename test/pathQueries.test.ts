@@ -1,30 +1,20 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { promises as fs } from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-
 import { initCodebase } from "../src/contextMap.js";
 import { findCallers, findPath } from "../src/pathQueries.js";
+import { tempRepos } from "./helpers/fixtures.js";
 
+const { makeRepo, cleanup } = tempRepos("ccm-pq-");
 let root: string;
 
 beforeAll(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-pq-"));
-  const files: Record<string, string> = {
+  root = await makeRepo({
     "src/x.ts": "export function helper() { return 1; }\n",
     "src/a.ts": "import { helper } from './x';\nexport function main() { return helper(); }\n"
-  };
-  for (const [rel, content] of Object.entries(files)) {
-    const full = path.join(root, rel);
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, content);
-  }
+  });
   await initCodebase(root, { mode: "none" });
 });
 
-afterAll(async () => {
-  await fs.rm(root, { recursive: true, force: true });
-});
+afterAll(cleanup);
 
 describe("find_callers (CAP-23, ADR 0024)", () => {
   it("lists the static caller of a symbol, never claiming confirmed runtime truth", async () => {
@@ -36,14 +26,10 @@ describe("find_callers (CAP-23, ADR 0024)", () => {
   });
 
   it("returns an init-required envelope when not initialized (no throw)", async () => {
-    const empty = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-pq-empty-"));
-    try {
-      const r = await findCallers(empty, "x");
-      expect(r.callers).toEqual([]);
-      expect(r.uncertainty[0].item).toMatch(/not initialized/i);
-    } finally {
-      await fs.rm(empty, { recursive: true, force: true });
-    }
+    const empty = await makeRepo();
+    const r = await findCallers(empty, "x");
+    expect(r.callers).toEqual([]);
+    expect(r.uncertainty[0].item).toMatch(/not initialized/i);
   });
 });
 
