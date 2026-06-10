@@ -64,7 +64,13 @@ let buildPromise: Promise<string | null> | null = null;
 function ensureAnalyzerBuilt(): Promise<string | null> {
   if (!buildPromise) {
     buildPromise = (async () => {
-      const build = await run("dotnet", ["build", "-c", "Release", "--nologo", "-v", "q"], ANALYZER_DIR, BUILD_TIMEOUT_MS);
+      // Concurrent test workers each run their own process-level build; MSBuild file locks
+      // can transiently fail one of them, so a failed build gets one delayed retry.
+      let build = await run("dotnet", ["build", "-c", "Release", "--nologo", "-v", "q"], ANALYZER_DIR, BUILD_TIMEOUT_MS);
+      if (build.code !== 0) {
+        await new Promise((r) => setTimeout(r, 2_000));
+        build = await run("dotnet", ["build", "-c", "Release", "--nologo", "-v", "q"], ANALYZER_DIR, BUILD_TIMEOUT_MS);
+      }
       if (build.code !== 0) return null;
       const releaseDir = path.join(ANALYZER_DIR, "bin", "Release");
       try {
