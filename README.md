@@ -4,9 +4,9 @@ This is the product implementation repository for the Code Cartographer MCP.
 
 The Context Architecture System repository at `../debug_mcp_context_manager` remains the source of truth for product context, policies, prompts, workflows, and decisions. This repository owns source code, tests, build configuration, and implementation artifacts.
 
-## Status: implemented (Epics A–I)
+## Status: implemented (Epics A–J)
 
-**The full product is implemented and tested.** The MCP server registers all **19 tools** and the CLI dispatches them; `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. ~231 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0024. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md).
+**The full product is implemented and tested.** The MCP server registers all **19 tools** and the CLI dispatches them — both surfaces are adapters over one declarative tool spec table (ADR 0025); `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. 253 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0025. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md).
 
 ## Scope
 
@@ -40,7 +40,7 @@ npm run build
 npm test
 ```
 
-`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (~231 tests).
+`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (253 tests).
 
 ## Run Locally
 
