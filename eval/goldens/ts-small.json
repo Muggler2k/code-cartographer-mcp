@@ -1,0 +1,68 @@
+{
+  "symbols": {
+    "required": [
+      "src/index.ts#main",
+      "src/index.ts#dyn",
+      "src/math.ts#add",
+      "src/math.ts#normalize",
+      "src/jsonParser.ts#parse",
+      "src/csvParser.ts#parse",
+      "src/legacy/retiredApi.ts#retired",
+      "src/legacy/retiredApi.ts#unusedInternal",
+      "test/main.test.ts#checkMain"
+    ],
+    "forbidden": []
+  },
+  "exported": {
+    "src/index.ts#main": true,
+    "src/math.ts#add": true,
+    "src/math.ts#normalize": false,
+    "src/legacy/retiredApi.ts#retired": true,
+    "src/legacy/retiredApi.ts#unusedInternal": false,
+    "test/main.test.ts#checkMain": true
+  },
+  "edges": {
+    "required": [
+      { "from": "src/index.ts#main", "to": "src/math.ts#add", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "src/math.ts#add", "to": "src/math.ts#normalize", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "test/main.test.ts#checkMain", "to": "src/index.ts#main", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "src/index.ts#dyn", "to": "unresolved#<computed>", "callKind": "dynamic" }
+    ],
+    "forbidden": [
+      { "from": "src/index.ts#main", "to": "src/csvParser.ts#parse" },
+      { "from": "src/index.ts#main", "to": "src/jsonParser.ts#parse" }
+    ]
+  },
+  "entryPoints": {
+    "required": [
+      { "path": "package.json", "kind": "package_manifest" },
+      { "path": "src/index.ts", "kind": "source_entry" },
+      { "path": "test/main.test.ts", "kind": "test_entry" }
+    ]
+  },
+  "duplicates": {
+    "requiredIds": ["dup:name:parse"],
+    "forbiddenIds": ["dup:name:main", "dup:name:add"]
+  },
+  "legacy": {
+    "required": [
+      { "id": "src/legacy/retiredApi.ts#retired", "reachability": "possibly_reachable" },
+      { "id": "src/legacy/retiredApi.ts#unusedInternal", "reachability": "apparently_unreachable" }
+    ],
+    "forbiddenIds": ["src/math.ts#add"]
+  },
+  "riskAreas": {
+    "requiredPatterns": [
+      "Module src/legacy has no static test path",
+      "Module src/legacy has no static path from any detected entry point"
+    ],
+    "forbiddenPatterns": ["Cyclic dependency cluster"]
+  },
+  "reachability": [
+    {
+      "target": "main",
+      "mustReach": ["src/math.ts#add", "src/math.ts#normalize"],
+      "mustNotReach": ["src/csvParser.ts#parse", "src/jsonParser.ts#parse", "src/legacy/retiredApi.ts#retired"]
+    }
+  ]
+}

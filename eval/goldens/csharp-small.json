@@ -1,0 +1,38 @@
+{
+  "symbols": {
+    "required": [
+      "Program.cs#Program",
+      "Program.cs#Program.Main",
+      "Greeter.cs#IGreeter",
+      "Greeter.cs#IGreeter.Greet",
+      "Greeter.cs#Greeter",
+      "Greeter.cs#Greeter.Greet",
+      "Greeter.cs#Greeter.Format"
+    ],
+    "forbidden": []
+  },
+  "exported": {
+    "Program.cs#Program.Main": true,
+    "Greeter.cs#Greeter.Greet": true,
+    "Greeter.cs#Greeter.Format": false
+  },
+  "edges": {
+    "required": [
+      { "from": "Program.cs#Program.Main", "to": "Greeter.cs#Greeter", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "Program.cs#Program.Main", "to": "Greeter.cs#IGreeter.Greet", "callKind": "method", "confidence": "likely" },
+      { "from": "Greeter.cs#Greeter.Greet", "to": "Greeter.cs#Greeter.Format", "callKind": "direct", "confidence": "confirmed" }
+    ],
+    "forbidden": [{ "from": "Program.cs#Program.Main", "to": "Greeter.cs#Greeter.Format" }]
+  },
+  "entryPoints": {
+    "required": [{ "path": "Program.cs", "kind": "source_entry" }]
+  },
+  "duplicates": { "requiredIds": [], "forbiddenIds": ["dup:name:Greet"] },
+  "reachability": [
+    {
+      "target": "Program.Main",
+      "mustReach": ["Greeter.cs#Greeter", "Greeter.cs#IGreeter.Greet"],
+      "mustNotReach": ["Greeter.cs#Greeter.Format"]
+    }
+  ]
+}

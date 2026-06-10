@@ -1,0 +1,13 @@
+{
+  "symbols": {
+    "required": ["a.ts#fromTypescript", "b.py#from_python", "C.cs#FromCSharp"],
+    "forbidden": []
+  },
+  "exported": {
+    "a.ts#fromTypescript": true
+  },
+  "files": {
+    "nonAnalyzable": ["blob.bin"]
+  },
+  "duplicates": { "requiredIds": [], "forbiddenIds": ["dup:name:fromTypescript"] }
+}

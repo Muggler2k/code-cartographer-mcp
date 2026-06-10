@@ -1,0 +1,42 @@
+{
+  "symbols": {
+    "required": [
+      "barrel/impl.ts#widget",
+      "shapeExported.ts#shape",
+      "shapePrivate.ts#shape",
+      "shapePrivate.ts#useShape",
+      "cycleA.ts#ping",
+      "cycleB.ts#pong",
+      "deepChain.ts#a0",
+      "deepChain.ts#a14"
+    ],
+    "forbidden": ["barrel/index.ts#widget"]
+  },
+  "exported": {
+    "shapeExported.ts#shape": true,
+    "shapePrivate.ts#shape": false
+  },
+  "edges": {
+    "required": [
+      { "from": "cycleA.ts#ping", "to": "cycleB.ts#pong", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "cycleB.ts#pong", "to": "cycleA.ts#ping", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "shapePrivate.ts#useShape", "to": "shapePrivate.ts#shape", "callKind": "direct", "confidence": "confirmed" }
+    ],
+    "forbidden": [{ "from": "shapePrivate.ts#useShape", "to": "shapeExported.ts#shape" }]
+  },
+  "duplicates": {
+    "requiredIds": [],
+    "forbiddenIds": ["dup:name:widget", "dup:name:shape"]
+  },
+  "riskAreas": {
+    "requiredPatterns": ["Cyclic dependency cluster"],
+    "forbiddenPatterns": []
+  },
+  "reachability": [
+    {
+      "target": "a0",
+      "mustReach": ["deepChain.ts#a12"],
+      "mustNotReach": ["deepChain.ts#a13", "deepChain.ts#a14"]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "symbols": {
+    "required": ["main.py#main", "util.py#helper", "test_main.py#test_main", "legacy_old.py#stale"],
+    "forbidden": []
+  },
+  "edges": {
+    "required": [
+      { "from": "main.py#main", "to": "util.py#helper", "confidence": "likely" },
+      { "from": "test_main.py#test_main", "to": "main.py#main", "confidence": "likely" }
+    ],
+    "forbidden": [{ "from": "util.py#helper", "to": "main.py#main" }]
+  },
+  "entryPoints": {
+    "required": [
+      { "path": "main.py", "kind": "source_entry" },
+      { "path": "test_main.py", "kind": "test_entry" }
+    ]
+  },
+  "duplicates": { "requiredIds": [], "forbiddenIds": ["dup:name:main", "dup:name:helper"] },
+  "legacy": {
+    "required": [{ "id": "legacy_old.py#stale", "reachability": "requires_human_confirmation" }],
+    "forbiddenIds": ["main.py#main"]
+  },
+  "reachability": [
+    {
+      "target": "main",
+      "mustReach": ["util.py#helper"],
+      "mustNotReach": ["legacy_old.py#stale"]
+    }
+  ]
+}

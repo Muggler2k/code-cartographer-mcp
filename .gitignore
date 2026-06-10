@@ -16,3 +16,4 @@ npm-debug.log*
 !.claude/skills/cartographer-implementer-session-primer/
 tools/roslyn-analyzer/bin/
 tools/roslyn-analyzer/obj/
+eval/results/
