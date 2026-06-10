@@ -4,7 +4,7 @@ _Last updated: 2026-06-10 · Status: **design ratified and implemented** (decisi
 
 This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
-all of which are now **resolved and implemented** (Epics A–M; ADRs 0008–0029,
+all of which are now **resolved and implemented** (Epics A–M + Q; ADRs 0008–0030,
 incl. the static path-finding + derived SQLite graph index of ADR 0023, the
 internal-seams reorganization of ADR 0025, findings derivation v2 of ADR 0026, and the optional C# Roslyn provider tier of ADR 0027).
 The decision table in §5 carries the resolution for each open question; D5
@@ -55,7 +55,7 @@ src/pathfinding.ts GraphSource contract + path-finding (ADR 0023/24) [done]
 src/graphIndex.ts graph-index.sqlite GraphSource (ADR 0023/0024)     [done]
 src/pathQueries.ts find_callers / find_path over GraphSource (0024)  [done]
 src/output.ts     formatting: results -> human / llm / dual          [done]
-eval/             capability evaluation harness (ADR 0029)           [done]
+eval/             capability eval harness + bench gates (0029/0030)  [done]
 ```
 
 Components inside the engine (all implemented):

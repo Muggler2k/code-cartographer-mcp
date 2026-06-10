@@ -1,6 +1,6 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); **Epic L done** (L1–L2) — optional C# Roslyn provider tier (ADR 0027); **Epic M done** (M1–M2) — capability evaluation harness (ADR 0029); **Epics N–T planned** per the v0.2 roadmap (ADR 0028); see per-epic notes below_
+_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); **Epic L done** (L1–L2) — optional C# Roslyn provider tier (ADR 0027); **Epic M done** (M1–M2) — capability evaluation harness (ADR 0029); **Epic Q done** (Q1–Q2) — benchmark/performance gates (ADR 0030); **Epics O/N/R/S/T/P planned** per the v0.2 roadmap (ADR 0028); see per-epic notes below_
 
 The full tool/type **surface** is implemented (19 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
@@ -135,8 +135,12 @@ Eval-first (ADR 0028): the engine's risk is unverified claims, so quality is now
 - **M1.** ✅ `eval/` — five golden-annotated fixture repos + `eval/harness.ts` scorer (symbol/exported/edge/entry accuracy, duplicate + legacy correctness incl. class, findings-v2 patterns, reachability mustReach/mustNotReach, binary handling) + universal confidence invariants checked on every subject + perf/token-shape recording. Goldens are human-authored static ground truth (`eval/goldens/README.md`), never regenerated from output.
 - **M2.** ✅ `npm run eval` scorecard runner (external real repos via `CCM_EVAL_EXTERNAL`, auto scope, invariants-only) + `test/evalHarness.test.ts` CI gate (100% required / 0 forbidden / 0 violations; C# fixture dotnet-gated). Baseline: 75/75 across five fixtures; two external repos invariant-clean; the 357k-token `llm_readable` summary on a 2.6k-file repo recorded as Epic O/Q input.
 
-### Epics N–T — planned (v0.2 "Verified Static Context", ADR 0028 — in ratified order)
-- **Epic Q — Benchmark/performance gates:** init/provider/index/query durations, expanded nodes, SQLite query counts, memory estimate, output size; regression thresholds where stable.
+### Epic Q — Benchmark/performance gates (ADR 0030) — ✅ DONE (Q1–Q2)
+Deterministic-first gating: a red gate always means a real product change.
+- **Q1.** ✅ Instrumentation: `InitResult.timings` (per-provider `{id, files, ms}` + total — additive, never persisted, `mapHash` untouched, verified); the eval harness bench section (explicit SQLite `GraphIndex` open + build timing, fixed path query with `QueryMetrics`, `sqliteQueryCount`, `sccBuildCount`, heap delta record-only). → protects ADR 0023/0024
+- **Q2.** ✅ `eval/baselines.json` (structural baselines from a verified-good run; update-with-reasoning, never auto-regenerated) + `test/benchGates.test.ts`: HARD gates on file/node/edge counts, fixed-query expansion/neighbor/SQLite counts, SCC-built-once, summary size ±20%; SOFT sanity ceilings on wall-clock; Roslyn-tier fixtures dotnet-gated. `npm run eval` prints idxMs + pq columns.
+
+### Epics O/N/R/S/T/P — planned (v0.2 "Verified Static Context", ADR 0028 — in ratified order)
 - **Epic O — Diff / PR mode:** `analyze_diff`, changed-path review, map comparison, new-duplicate/new-legacy detection, confidence-regression detection.
 - **Epic N — C++ semantic tier:** optional clangd/libclang provider (compile_commands.json/CMake detection, header/source + namespace resolution, include graph, macro-aware confidence); fallback clang → tree-sitter → heuristic.
 - **Epic R — Productized setup/onboarding:** npx story, MCP config examples, init wizard, `doctor`/provider-availability report, `explain-tools`, sample walkthrough.

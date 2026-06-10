@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - MCP clients must point at the **built** `dist/index.js` (`npm run build` first); `dev`/`cli` run unbuilt `src/` via `tsx`. See `docs/mcp-client-config.md`.
 - `git config core.hooksPath .githooks` — enable the local secret/PII scanning hooks. These are bash scripts: on this Windows-primary repo they run under Git Bash/WSL; on macOS/Linux also `chmod +x .githooks/*`.
 
-## Status: implemented (Epics A–M)
+## Status: implemented (Epics A–M, Q)
 
 **The full product is implemented and tested.** `init_codebase` builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real `.code-cartographer-mcp/context-map.json` that carries files, languages, entry points, modules, ownership signals, a **static call graph** (provider-extracted), and confidence-graded findings. The **19 MCP tools** and the CLI all work end-to-end. Source layout:
 
@@ -37,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `src/tools.ts` — the declarative tool spec table (ADR 0025): all 19 tools as `{ name, schema, cli, execute }` rows; the MCP registration and CLI dispatch in `index.ts` are two adapters over it, so the surfaces cannot drift.
 - `src/output.ts` — 19 formatters (human/llm/dual).
 
-285 tests passing; build/typecheck pass. A capability evaluation harness (`eval/`, ADR 0029) scores the analyzer against golden-annotated fixtures + external repos (`npm run eval`; CI-gated via `test/evalHarness.test.ts`); per the v0.2 roadmap (ADR 0028), new findings rules and provider claims must land with fixture constructs + golden entries. Decisions 0001–0029 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
+290 tests passing; build/typecheck pass. A capability evaluation harness (`eval/`, ADR 0029) scores the analyzer against golden-annotated fixtures + external repos (`npm run eval`; CI-gated via `test/evalHarness.test.ts`), and benchmark gates (ADR 0030, `test/benchGates.test.ts`) pin structural metrics against `eval/baselines.json` — deterministic numbers gate hard (update the baseline consciously, with reasoning), wall-clock only at sanity ceilings. Per the v0.2 roadmap (ADR 0028), new findings rules and provider claims must land with fixture constructs + golden entries. Decisions 0001–0030 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
 
 ## Architecture
 

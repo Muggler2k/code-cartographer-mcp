@@ -4,7 +4,7 @@ _Last updated: 2026-06-10_
 
 ## TL;DR
 
-**The full product is implemented and tested (Epics A–M).** `init_codebase`
+**The full product is implemented and tested (Epics A–Q*).** (*epic letters follow the ADR 0028 roadmap order — Q landed directly after M.) `init_codebase`
 builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real
 `.code-cartographer-mcp/context-map.json` carrying files, languages, entry points,
 modules, ownership signals, a provider-extracted **static call graph**, and
@@ -26,8 +26,8 @@ over one declarative tool table (`src/tools.ts`), and the type vocabulary lives 
 seven map-only rules — cycles, visibility hotspots, source→test violations, scattered
 ownership, statically untested modules, fan-out hotspots, entry-point orphans — plus
 re-export visibility (`OwnershipSignal.reExport`; barrels stop false-positiving the
-duplicate rule). A **capability evaluation harness** (ADR 0029, Epic M — the first step of the **v0.2 "Verified Static Context"** roadmap, ADR 0028) scores the analyzer against golden-annotated fixture repos + external real repos: all five fixtures pass 75/75 required golden items with zero invariant violations (`npm run eval`; CI-gated). **285 tests passing**;
-build/typecheck pass. Design is recorded in CAS Decisions 0001–0029. See
+duplicate rule). A **capability evaluation harness** (ADR 0029, Epic M — the first step of the **v0.2 "Verified Static Context"** roadmap, ADR 0028) scores the analyzer against golden-annotated fixture repos + external real repos: all five fixtures pass 75/75 required golden items with zero invariant violations (`npm run eval`; CI-gated). **Benchmark gates** (ADR 0030, Epic Q) pin the structural metrics — node/edge counts, fixed-query expansion + SQLite query counts, SCC-built-once, output size ±20% — against `eval/baselines.json` (hard, deterministic), with wall-clock under generous sanity ceilings and heap/external numbers record-only. **290 tests passing**;
+build/typecheck pass. Design is recorded in CAS Decisions 0001–0030. See
 [`architecture.md`](./architecture.md), [`backlog.md`](./backlog.md),
 [`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md), [`csharp-roslyn-provider.md`](./csharp-roslyn-provider.md), and [`evaluation-harness.md`](./evaluation-harness.md).
 
@@ -51,15 +51,15 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0029. See
 | `src/pathfinding.ts` | **Implemented.** The `NeighborSource`/`GraphSource` contract + `inMemoryGraphSource` fallback + `resolveNodeIds` + static point-to-point path-finding (ADR 0023/0024): bidirectional-BFS fewest-hop, max-bottleneck (widest-path) best-confidence, dominance-ordered k-best, iterative Tarjan SCC, structural `QueryMetrics`. Emitted confidence clamped to `likely`. |
 | `src/graphIndex.ts` | **Implemented.** A `GraphSource` backed by `graph-index.sqlite` (built-in `node:sqlite`, ADR 0023/0024): indexed caller/callee + `nodes_symbol`/`nodes_path` lookups, SCC cached once, stamped with `mapHash`, rebuilt when missing/schema-stale/hash-stale. `loadGraphContext` picks it for large graphs, else the in-memory fallback (SQLite optional). A disposable projection of `map.callGraph` — never a second source of truth. |
 | `src/pathQueries.ts` | **Implemented (ADR 0024).** The `find_callers` / `find_path` capabilities surfacing the path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results. |
-| `eval/` | **Implemented (ADR 0029).** The capability evaluation harness: five golden-annotated fixture repos (`ts-small`/`python-small`/`csharp-small`/`mixed`/`edge-cases`), a scorer with universal confidence invariants, `npm run eval` scorecard runner (+ `CCM_EVAL_EXTERNAL` real repos), and the `test/evalHarness.test.ts` CI gate. See [`evaluation-harness.md`](./evaluation-harness.md). |
-| `test/*.test.ts` | **285 tests passing, 0 `it.todo`** across 19 files (core map, scope/exclusion, providers + the **C# Roslyn tier** (`describe.runIf(dotnetAvailable)`), derivation, findings + **derivation v2**, the **evaluation gate**, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, the **analysisContext** seam, the **tools** table, and a structural **benchmark** suite). Shared fixtures (`test/helpers/fixtures.ts`): `tempRepos` + `testContextMap` builders (ADR 0025). |
+| `eval/` | **Implemented (ADR 0029 + 0030).** The capability evaluation harness: five golden-annotated fixture repos (`ts-small`/`python-small`/`csharp-small`/`mixed`/`edge-cases`), a scorer with universal confidence invariants **and a bench section** (per-provider timings, SQLite index build, fixed-query `QueryMetrics`, heap delta), `npm run eval` scorecard runner (+ `CCM_EVAL_EXTERNAL` real repos), `eval/baselines.json` structural baselines, and two CI gates: `test/evalHarness.test.ts` (accuracy) + `test/benchGates.test.ts` (benchmarks). See [`evaluation-harness.md`](./evaluation-harness.md). |
+| `test/*.test.ts` | **290 tests passing, 0 `it.todo`** across 20 files (core map, scope/exclusion, providers + the **C# Roslyn tier** (`describe.runIf(dotnetAvailable)`), derivation, findings + **derivation v2**, the **evaluation gate**, the **benchmark gates**, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, the **analysisContext** seam, the **tools** table, and a structural **benchmark** suite). Shared fixtures (`test/helpers/fixtures.ts`): `tempRepos` + `testContextMap` builders (ADR 0025). |
 | Build / typecheck | **Pass** — compiles clean under strict TypeScript. |
 | `.code-cartographer-mcp/context-map.json` | **Produced** — `initCodebase` writes it atomically (temp + fsync + rename), artifact dir gitignored. Dogfooded on this repo (gitignore scope: 72 files, 459 ownership signals, 861 call edges as of Epic L). |
 | `.code-cartographer-mcp/graph-index.sqlite` | **Derived (ADR 0023).** A rebuildable projection of `map.callGraph` (same gitignored dir). Stamped with `mapHash`; rebuilt on mismatch. The JSON map stays the single source of truth — `mapHash`/staleness composition is unchanged. |
 
 ## Remaining work
 
-Epics A–M are implemented (ADR 0024 graph-traversal unification; ADR 0025 internal seams; ADR 0026 findings derivation v2; ADR 0027 C# Roslyn provider; ADR 0029 capability evaluation harness). The **v0.2 "Verified Static Context"** roadmap (ADR 0028) ratifies the remaining order: Q (benchmark gates) → O (diff/PR mode) → N (C++ semantic tier) → R (onboarding) → S (CAS export) → T (canonical path registry) → P (incremental refresh) — and its anti-goals (no new findings/provider claims without harness scores). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is fully resolved. What's left:
+Epics A–M + Q are implemented (ADR 0024 graph-traversal unification; ADR 0025 internal seams; ADR 0026 findings derivation v2; ADR 0027 C# Roslyn provider; ADR 0029 capability evaluation harness; ADR 0030 benchmark gates). The **v0.2 "Verified Static Context"** roadmap (ADR 0028) ratifies the remaining order: O (diff/PR mode) → N (C++ semantic tier) → R (onboarding) → S (CAS export) → T (canonical path registry) → P (incremental refresh) — and its anti-goals (no new findings/provider claims without harness scores). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is fully resolved. What's left:
 
 - **✅ DONE — Graph-traversal unification (HF-1 · Epic I · ADR 0024)** and **internal-seams deepening (Epic J · ADR 0025)**: one analysis-context envelope, one tool spec table behind MCP + CLI, schema/engine split, shared test fixtures.
 - **More language-specific providers** behind the existing `LanguageProvider` interface (C#/Roslyn ✅ done, ADR 0027; next candidates: deeper Python/Go). Signature-aware duplicate detection was reviewed and deferred (ADR 0026).
@@ -71,12 +71,12 @@ Epics A–M are implemented (ADR 0024 graph-traversal unification; ADR 0025 inte
 Product requirements, policies, and decisions live in the sibling **CAS** repo
 `../debug_mcp_context_manager` (see [`cas-source-of-truth.md`](./cas-source-of-truth.md)).
 This repo owns implementation only. The CAS-side current-state record is
-`context/sessions/2026-06-10_eval-harness-adrs-0028-0029.md` and
-`context/00_index/index.md`; design is recorded in ADRs 0001–0029 under
-`context/07_decisions/` (ADR 0028 — the v0.2 roadmap; ADR 0029 — the evaluation harness, implemented as Epic M).
+`context/sessions/2026-06-10_bench-gates-adr-0030.md` and
+`context/00_index/index.md`; design is recorded in ADRs 0001–0030 under
+`context/07_decisions/` (ADR 0028 — the v0.2 roadmap; ADR 0030 — benchmark gates, implemented as Epic Q).
 
 ## Next steps (per the ADR 0028 roadmap)
 
-1. **Epic Q — benchmark/performance gates** over the harness's recorded numbers.
-2. **Epic O — diff / PR mode** (the 357k-token full-summary measurement on the large external repo is the motivating datum).
+1. **Epic O — diff / PR mode** (the 357k-token full-summary measurement on the large external repo is the motivating datum).
+2. **Epic N — C++ semantic tier**, then R/S/T/P.
 3. **Release prep** — confirm dependency pins (D5), bump `engines.node` to ≥ 22.5, promote draft CAS policies to accepted.

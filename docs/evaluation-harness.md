@@ -1,4 +1,4 @@
-# Capability Evaluation Harness — Implementation Note (ADR 0029, Epic M)
+# Capability Evaluation Harness — Implementation Note (ADRs 0029/0030, Epics M + Q)
 
 The harness (`eval/`) runs the analyzer against known repos and **scores** output quality,
 so provider claims, findings precision, grading rules, performance, and output shape are
@@ -46,7 +46,7 @@ All five fixtures **PASS — 75/75 required, 0 forbidden, 0 invariant violations
 subjects (invariant-clean): `Calculator-master` (5 files incl. a binary, ~0.8 s init) and a
 2,661-file ASP.NET 9 repo (59 k edges, ~17–22 s init, **~357 k-token** `llm_readable`
 summary — recorded as direct input to Epic Q gates and Epic O's changed-files mode).
-Performance is *recorded, not gated* in Epic M; thresholds are Epic Q (ADR 0028).
+Epic Q (ADR 0030) turned the structural numbers into HARD gates (test/benchGates.test.ts vs eval/baselines.json: file/node/edge counts, fixed-query expansion + SQLite query counts, SCC-built-once, summary size ±20%); wall-clock gates only at generous sanity ceilings; heap + external numbers stay record-only. Baselines are updated consciously, with reasoning — never auto-regenerated.
 
 ## Known limits
 
