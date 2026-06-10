@@ -14,3 +14,5 @@ npm-debug.log*
 !.claude/skills/cas-preflight/
 !.claude/skills/cas-snapshot/
 !.claude/skills/cartographer-implementer-session-primer/
+tools/roslyn-analyzer/bin/
+tools/roslyn-analyzer/obj/
