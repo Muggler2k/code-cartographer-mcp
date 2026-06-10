@@ -3,7 +3,7 @@
 // the server never produces rendered images. The diagram carries a legend so
 // confidence/edge-kind grading stays visible. Requires an initialized context map.
 
-import { INIT_UNCERTAINTY, withContext, type AnalysisTarget } from "./analysisContext.js";
+import { BOUNDARY, INIT_UNCERTAINTY, withContext, type AnalysisTarget } from "./analysisContext.js";
 import type { CallEdge, CallGraphNode, UncertaintyItem } from "./schema.js";
 import { mapCallStack } from "./callGraph.js";
 import { detectArchitectureDrift } from "./analysis.js";
@@ -144,7 +144,7 @@ export async function visualizeCallStack(
   const legend = legendFor(cs.edges);
   if (cs.maxDepthReached) legend.push("truncated node = traversal stopped at max depth, not a leaf");
   return {
-    analysisBoundary: "codebase_only",
+    analysisBoundary: BOUNDARY,
     entryPoint,
     visualization: { format, diagram, title: `Call stack from ${entryPoint}`, legend },
     uncertainty: cs.uncertainty
@@ -159,54 +159,54 @@ export async function visualizeArchitecture(
   return withContext(
     repoOrContext,
     {
-      analysisBoundary: "codebase_only" as const,
+      analysisBoundary: BOUNDARY,
       visualization: { format, diagram: "", title: "Architecture (not initialized)", legend: [BOUNDARY_LEGEND] },
       uncertainty: [INIT_UNCERTAINTY]
     },
     async (ctx) => {
-    const map = ctx.map;
-    const drift = await detectArchitectureDrift(ctx);
-    const modules = map.summary.modules;
-    const exportedByModule = new Map<string, string[]>();
-    for (const sig of map.summary.ownershipSignals) {
-      if (!sig.exported) continue;
-      const mod = modules.find((m) => m.files.includes(sig.path));
-      if (!mod) continue;
-      (exportedByModule.get(mod.root) ?? exportedByModule.set(mod.root, []).get(mod.root)!).push(sig.symbol);
-    }
+      const map = ctx.map;
+      const drift = await detectArchitectureDrift(ctx);
+      const modules = map.summary.modules;
+      const exportedByModule = new Map<string, string[]>();
+      for (const sig of map.summary.ownershipSignals) {
+        if (!sig.exported) continue;
+        const mod = modules.find((m) => m.files.includes(sig.path));
+        if (!mod) continue;
+        (exportedByModule.get(mod.root) ?? exportedByModule.set(mod.root, []).get(mod.root)!).push(sig.symbol);
+      }
 
-    let diagram: string;
-    if (format === "dot") {
-      const lines = ["digraph architecture {", "  rankdir=LR;", "  node [shape=box];"];
-      modules.forEach((m, i) => lines.push(`  m${i} [label="${m.name} (${m.category}) — ${m.files.length} file(s)"];`));
-      lines.push("}");
-      diagram = lines.join("\n");
-    } else if (format === "ascii") {
-      const lines = modules.map((m) => `${m.root}/ (${m.category}) — ${m.files.length} file(s)`);
-      lines.push("", "Drift findings:");
-      for (const f of drift.driftFindings) lines.push(`  [${f.confidence}] ${f.finding} — ${f.risk}`);
-      diagram = lines.join("\n");
-    } else {
-      const lines = ["flowchart LR"];
-      modules.forEach((m, i) => lines.push(`  m${i}["${m.name} (${m.category})\\n${(exportedByModule.get(m.root) ?? []).slice(0, 3).join(", ") || "—"}"]`));
-      drift.driftFindings.forEach((f, i) => lines.push(`  d${i}[/"drift: ${f.finding.slice(0, 50)} ⚠"/]`));
-      diagram = lines.join("\n");
-    }
+      let diagram: string;
+      if (format === "dot") {
+        const lines = ["digraph architecture {", "  rankdir=LR;", "  node [shape=box];"];
+        modules.forEach((m, i) => lines.push(`  m${i} [label="${m.name} (${m.category}) — ${m.files.length} file(s)"];`));
+        lines.push("}");
+        diagram = lines.join("\n");
+      } else if (format === "ascii") {
+        const lines = modules.map((m) => `${m.root}/ (${m.category}) — ${m.files.length} file(s)`);
+        lines.push("", "Drift findings:");
+        for (const f of drift.driftFindings) lines.push(`  [${f.confidence}] ${f.finding} — ${f.risk}`);
+        diagram = lines.join("\n");
+      } else {
+        const lines = ["flowchart LR"];
+        modules.forEach((m, i) => lines.push(`  m${i}["${m.name} (${m.category})\\n${(exportedByModule.get(m.root) ?? []).slice(0, 3).join(", ") || "—"}"]`));
+        drift.driftFindings.forEach((f, i) => lines.push(`  d${i}[/"drift: ${f.finding.slice(0, 50)} ⚠"/]`));
+        diagram = lines.join("\n");
+      }
 
-    const legend = [BOUNDARY_LEGEND, "box = module (name, category, sample exports)", "⚠ note = architecture-drift finding (see uncertainty)"];
-    const moduleNote: UncertaintyItem = {
-      item: "Module groupings are static path/category groupings",
-      reason: "They reflect directory layout, not proven runtime ownership or call relationships.",
-      requiredConfirmation: "Runtime tracing or human architectural review."
-    };
-    const uncertainty = [...drift.uncertainty];
-    if (!uncertainty.some((u) => u.item === moduleNote.item)) uncertainty.push(moduleNote);
+      const legend = [BOUNDARY_LEGEND, "box = module (name, category, sample exports)", "⚠ note = architecture-drift finding (see uncertainty)"];
+      const moduleNote: UncertaintyItem = {
+        item: "Module groupings are static path/category groupings",
+        reason: "They reflect directory layout, not proven runtime ownership or call relationships.",
+        requiredConfirmation: "Runtime tracing or human architectural review."
+      };
+      const uncertainty = [...drift.uncertainty];
+      if (!uncertainty.some((u) => u.item === moduleNote.item)) uncertainty.push(moduleNote);
 
-    return {
-      analysisBoundary: "codebase_only",
-      visualization: { format, diagram, title: `Architecture: ${modules.length} module(s)`, legend },
-      uncertainty
-    };
+      return {
+        analysisBoundary: BOUNDARY,
+        visualization: { format, diagram, title: `Architecture: ${modules.length} module(s)`, legend },
+        uncertainty
+      };
     }
   );
 }
