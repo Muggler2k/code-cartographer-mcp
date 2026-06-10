@@ -22,6 +22,7 @@ import {
   reviewPreflight
 } from "./analysis.js";
 import { mapCallStack } from "./callGraph.js";
+import { analyzeDiff } from "./mapDiff.js";
 import { findCallers, findPath } from "./pathQueries.js";
 import { visualizeArchitecture, visualizeCallStack } from "./visualize.js";
 import { previewScope, type ExclusionConfig, type ExclusionMode } from "./scope.js";
@@ -40,6 +41,7 @@ import {
   formatInitResult,
   formatInitStatus,
   formatLegacyClassification,
+  formatMapDiff,
   formatOwnership,
   formatPreflightReview,
   formatReachability,
@@ -108,7 +110,7 @@ function defineTool<Shape extends z.ZodRawShape>(spec: {
   return spec as ToolSpec;
 }
 
-// ---- The table (19 tools) ----
+// ---- The table (20 tools) ----
 
 export const TOOLS: readonly ToolSpec[] = [
   // -- Core map tools --
@@ -250,6 +252,20 @@ export const TOOLS: readonly ToolSpec[] = [
     inputSchema: { repositoryRoot, outputMode },
     cli: { command: "drift", positionals: [] },
     execute: async ({ repositoryRoot, outputMode }) => formatArchitectureDrift(await detectArchitectureDrift(repositoryRoot), mode(outputMode))
+  }),
+
+  defineTool({
+    name: "analyze_diff",
+    title: "Analyze diff (changed files only)",
+    description:
+      "Compare the persisted baseline map against the CURRENT working tree (rebuilt in memory under the baseline's recorded scope; nothing persisted) — or against an explicit baseline snapshot via baselineMapPath. Returns the capped static delta: changed files, call-graph adds/removes, NEW duplicate paths, legacy reachability transitions, new risk areas, and confidence regressions (static evidence weakening — never a runtime claim), plus the agent verdict: did this change add a second path, bypass a public surface, revive legacy, or increase uncertainty?",
+    inputSchema: {
+      repositoryRoot,
+      baselineMapPath: z.string().optional().describe("Optional explicit baseline context-map.json to compare against the repository's persisted map (CI: map@main vs map@head). Omit to diff the persisted baseline against the current tree."),
+      outputMode
+    },
+    cli: { command: "diff", positionals: [] },
+    execute: async ({ repositoryRoot, baselineMapPath, outputMode }) => formatMapDiff(await analyzeDiff(repositoryRoot, { baselineMapPath }), mode(outputMode))
   }),
 
   // -- Call-stack + visualization tools --

@@ -28,15 +28,16 @@ const EXPECTED_TOOL_NAMES = [
   "investigate_failure",
   "analyze_test_paths",
   "detect_architecture_drift",
+  "analyze_diff",
   "map_call_stack",
   "visualize_call_stack",
   "visualize_architecture"
 ];
 
 describe("tool spec table (Decision 0025)", () => {
-  it("defines exactly the 19 documented MCP tools", () => {
+  it("defines exactly the 20 documented MCP tools", () => {
     expect(TOOLS.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOL_NAMES].sort());
-    expect(TOOLS).toHaveLength(19);
+    expect(TOOLS).toHaveLength(20);
   });
 
   it("has unique MCP names and unique CLI commands", () => {

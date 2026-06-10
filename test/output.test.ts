@@ -17,6 +17,7 @@ import type {
 } from "../src/analysis.js";
 import type { CallStackResult } from "../src/callGraph.js";
 import type { ArchitectureVisualizationResult, CallStackVisualizationResult } from "../src/visualize.js";
+import type { MapDiffResult } from "../src/mapDiff.js";
 import type { ScopePreview } from "../src/scope.js";
 import {
   formatArchitectureDrift,
@@ -34,6 +35,7 @@ import {
   formatOwnership,
   formatPreflightReview,
   formatReachability,
+  formatMapDiff,
   formatScopePreview,
   formatTestPaths
 } from "../src/output.js";
@@ -219,6 +221,28 @@ interface Case {
   human: string; // substring expected in human mode
 }
 
+const mapDiff: MapDiffResult = {
+  analysisBoundary: "codebase_only",
+  baseline: { mapHash: "aaaa1111bbbb", generatedAt: "2026-06-10T00:00:00.000Z" },
+  current: { mapHash: "cccc2222dddd" },
+  delta: {
+    files: { added: ["src/csv.ts"], removed: [], changed: ["src/json.ts"] },
+    graph: { nodesAdded: ["src/csv.ts#parse"], nodesRemoved: [], edgesAdded: [], edgesRemoved: [] },
+    newDuplicates: [{ id: "dup:name:parse", label: "Exported 'parse' declared in 2 locations", confidence: "candidate", evidence: ["e"], risk: "divergence", uncertainty: [{ item: "equivalence unproven", reason: "static", requiredConfirmation: "human" }] }],
+    resolvedDuplicateIds: [],
+    newLegacy: [],
+    legacyTransitions: [{ id: "legacy/x.ts#old", from: "apparently_unreachable", to: "still_reachable", revived: true }],
+    newRiskAreas: [],
+    resolvedRiskAreaCount: 0,
+    canonicalRemovedIds: [],
+    confidence: { regressions: [], improvements: 0, weakEdgeRatioBaseline: 0.1, weakEdgeRatioCurrent: 0.2, uncertaintyItemsBaseline: 1, uncertaintyItemsCurrent: 2 },
+    totals: { filesAdded: 1, filesRemoved: 0, filesChanged: 1, nodesAdded: 1, nodesRemoved: 0, edgesAdded: 0, edgesRemoved: 0, newDuplicates: 1, newLegacy: 0, legacyTransitions: 1, newRiskAreas: 0, confidenceRegressions: 0 }
+  },
+  verdict: { addedParallelPath: true, bypassedAbstraction: false, revivedLegacy: true, increasedUncertainty: true },
+  recommendation: { action: "consolidate", target: "dup:name:parse", rationale: "parallel path" },
+  uncertainty: [{ item: "The delta compares static inferences, not behavior", reason: "static", requiredConfirmation: "tests" }]
+};
+
 const cases: Case[] = [
   { name: "formatInitStatus", render: (m) => formatInitStatus(initStatus, m), human: "initialized" },
   { name: "formatInitResult", render: (m) => formatInitResult(initResult, m), human: "Initial" },
@@ -235,7 +259,8 @@ const cases: Case[] = [
   { name: "formatArchitectureDrift", render: (m) => formatArchitectureDrift(drift, m), human: "scattered ownership" },
   { name: "formatCallStack", render: (m) => formatCallStack(callStack, m), human: "main" },
   { name: "formatCallStackVisualization", render: (m) => formatCallStackVisualization(callViz, m), human: "graph TD" },
-  { name: "formatArchitectureVisualization", render: (m) => formatArchitectureVisualization(archViz, m), human: "graph TD" }
+  { name: "formatArchitectureVisualization", render: (m) => formatArchitectureVisualization(archViz, m), human: "graph TD" },
+  { name: "formatMapDiff", render: (m) => formatMapDiff(mapDiff, m), human: "statically revived" }
 ];
 
 describe("all result formatters (Epic D, output-mode policy)", () => {

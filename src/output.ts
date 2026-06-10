@@ -30,6 +30,7 @@ import type {
 } from "./analysis.js";
 import type { CallStackResult } from "./callGraph.js";
 import type { FindCallersResult, FindPathResult, StaticPathView } from "./pathQueries.js";
+import type { MapDiffResult } from "./mapDiff.js";
 import type {
   ArchitectureVisualizationResult,
   CallStackVisualizationResult,
@@ -424,6 +425,56 @@ export function formatScopePreview(result: ScopePreview, mode: OutputMode): stri
     ...sampleList(result.sampleExcluded),
     "",
     "_No map was written — this is a preview (step 1 of init)._"
+  ].join("\n");
+  return byMode(human, result, mode);
+}
+
+/** CAP-26 — diff/PR mode (Decision 0031): the static delta between baseline and current. */
+export function formatMapDiff(result: MapDiffResult, mode: OutputMode): string {
+  const d = result.delta;
+  const t = d.totals;
+  const capNote = (shown: number, total: number): string => (total > shown ? ` _(showing ${shown} of ${total})_` : "");
+  const verdictLine = (label: string, hit: boolean): string => `- ${hit ? "⚠ **YES**" : "no"} — ${label}`;
+  const human = [
+    "# Static Diff (baseline → current)",
+    "",
+    CODEBASE_ONLY_BANNER,
+    "",
+    `- **Baseline:** \`${result.baseline.mapHash.slice(0, 12) || "—"}\` (${result.baseline.generatedAt || "—"})`,
+    `- **Current:** \`${result.current.mapHash.slice(0, 12) || "—"}\``,
+    "",
+    "## Verdict (static structural signals — never runtime claims)",
+    verdictLine("added a parallel/duplicate path", result.verdict.addedParallelPath),
+    verdictLine("bypassed a public surface", result.verdict.bypassedAbstraction),
+    verdictLine("revived a legacy path (statically referenced again)", result.verdict.revivedLegacy),
+    verdictLine("weakened the static evidence / increased uncertainty", result.verdict.increasedUncertainty),
+    "",
+    recommendationLine(result.recommendation),
+    ...section(`Files (+${t.filesAdded} / −${t.filesRemoved} / ~${t.filesChanged})`, [
+      ...d.files.added.map((p) => `- added \`${p}\``),
+      ...d.files.removed.map((p) => `- removed \`${p}\``),
+      ...d.files.changed.map((p) => `- changed \`${p}\``)
+    ]),
+    ...section(`Call graph (nodes +${t.nodesAdded}/−${t.nodesRemoved}, edges +${t.edgesAdded}/−${t.edgesRemoved})${capNote(d.graph.edgesAdded.length, t.edgesAdded)}`, [
+      ...d.graph.nodesAdded.map((id) => `- node added \`${id}\``),
+      ...d.graph.nodesRemoved.map((id) => `- node removed \`${id}\` _(removed+added pairs may be renames — never guessed)_`),
+      ...d.graph.edgesAdded.map((e) => `- edge added ${e}`),
+      ...d.graph.edgesRemoved.map((e) => `- edge removed ${e}`)
+    ]),
+    ...section(`New duplicate paths (${t.newDuplicates})${capNote(d.newDuplicates.length, t.newDuplicates)}`, d.newDuplicates.map(duplicateLine)),
+    ...section(`Legacy (${t.newLegacy} new, ${t.legacyTransitions} transition(s))`, [
+      ...d.newLegacy.map(legacyLine),
+      ...d.legacyTransitions.map((tr) => `- **${tr.id}**: \`${tr.from}\` → \`${tr.to}\`${tr.revived ? " — ⚠ statically revived" : ""}`)
+    ]),
+    ...section(`New risk areas (${t.newRiskAreas}; ${d.resolvedRiskAreaCount} resolved)`, d.newRiskAreas.flatMap(findingLines)),
+    ...section(`Canonical owners removed (${d.canonicalRemovedIds.length})`, d.canonicalRemovedIds.map((id) => `- \`${id}\``)),
+    ...section(`Static evidence (confidence)`, [
+      `- Regressions: ${t.confidenceRegressions}${capNote(d.confidence.regressions.length, t.confidenceRegressions)}; improvements: ${d.confidence.improvements}`,
+      ...d.confidence.regressions.map((r) => `- ${r.edge}: \`${r.from}\` → \`${r.to}\` (static evidence weakened)`),
+      `- Weak-edge ratio: ${d.confidence.weakEdgeRatioBaseline} → ${d.confidence.weakEdgeRatioCurrent}`,
+      `- Map-wide uncertainty items: ${d.confidence.uncertaintyItemsBaseline} → ${d.confidence.uncertaintyItemsCurrent}`
+    ]),
+    ...section("Uncertainty", uncertaintyLines(result.uncertainty))
   ].join("\n");
   return byMode(human, result, mode);
 }
