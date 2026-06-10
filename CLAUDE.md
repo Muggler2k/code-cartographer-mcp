@@ -17,14 +17,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - MCP clients must point at the **built** `dist/index.js` (`npm run build` first); `dev`/`cli` run unbuilt `src/` via `tsx`. See `docs/mcp-client-config.md`.
 - `git config core.hooksPath .githooks` — enable the local secret/PII scanning hooks. These are bash scripts: on this Windows-primary repo they run under Git Bash/WSL; on macOS/Linux also `chmod +x .githooks/*`.
 
-## Status: implemented (Epics A–K)
+## Status: implemented (Epics A–L)
 
 **The full product is implemented and tested.** `init_codebase` builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real `.code-cartographer-mcp/context-map.json` that carries files, languages, entry points, modules, ownership signals, a **static call graph** (provider-extracted), and confidence-graded findings. The **19 MCP tools** and the CLI all work end-to-end. Source layout:
 
 - `src/schema.ts` — the behavior-free shared vocabulary (ADR 0025): `Confidence` + `clampConfidence`, finding/uncertainty shapes, `FileEntry`, `CallGraphNode`/`CallEdge`, `StaticContextMap` (schema v1). Import types from here, behavior from the owning module.
 - `src/scope.ts` — scope/exclusion (4 modes, gitignore via `ignore`, preview→confirm).
 - `src/files.ts` — `hashFile` (cap→metadata, binary sniff) + `categorizeFile`.
-- `src/providers/` — `LanguageProvider` registry, three tiers: **TS/JS provider** (TS compiler API, one Program/checker, type-resolved cross-file → `confirmed`), **tree-sitter provider** (Python/Go/Java/Rust/Ruby/C#/C++/C via WASM grammars → `likely`; cross-file resolution for Go/Python/Rust), and the **heuristic** regex floor (`candidate`). Engine clamps each to the provider's ceiling.
+- `src/providers/` — `LanguageProvider` registry, four tiers: **TS/JS provider** (TS compiler API, one Program/checker, type-resolved cross-file → `confirmed`), **C# Roslyn provider** (ADR 0027: optional .NET sidecar in `tools/roslyn-analyzer`, gated on a `dotnet` probe, semantic-model-resolved → `confirmed`, dispatch capped `likely`; no SDK → tree-sitter keeps C#), **tree-sitter provider** (Python/Go/Java/Rust/Ruby/C#/C++/C via WASM grammars → `likely`; cross-file resolution for Go/Python/Rust), and the **heuristic** regex floor (`candidate`). Engine clamps each to the provider's ceiling.
 - `src/contextMap.ts` — the map engine behind a three-function interface: `buildContextMap` (runs providers → ownership/entry hints/call graph + findings), persistence, `mapHash`/staleness, entry-point/module derivation. Types live in `schema.ts`.
 - `src/findings.ts` — D4 derivation (ADR 0017) + derivation v2 (ADR 0026): duplicate/legacy/canonical + risk areas (god-file, bypassed abstraction, cyclic clusters via Tarjan SCC, low-static-visibility hotspots, source→test violations, scattered ownership, statically untested modules, fan-out hotspots, entry-point orphans) — all ≤ `candidate`, capped, with in-record uncertainty; re-exports (`OwnershipSignal.reExport`) are aliases, never parallel implementations.
 - `src/analysisContext.ts` — the shared analysis-context seam (ADR 0025): `withContext` owns the load → init-guard → close envelope; `makeAnalysisContext` injects an in-memory `GraphSource` so graph-shaped tests skip the filesystem. Capabilities take `AnalysisTarget` (root string or caller-owned context).
@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `src/tools.ts` — the declarative tool spec table (ADR 0025): all 19 tools as `{ name, schema, cli, execute }` rows; the MCP registration and CLI dispatch in `index.ts` are two adapters over it, so the surfaces cannot drift.
 - `src/output.ts` — 19 formatters (human/llm/dual).
 
-268 tests passing; build/typecheck pass. Decisions 0001–0026 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
+279 tests passing; build/typecheck pass. Decisions 0001–0027 in the CAS source of truth record the design. The codebase-only contract is load-bearing: confidence is clamped to the weakest edge, reachability/ownership never exceed `likely`, dead code is never asserted, and runtime claims stay `unresolved`.
 
 ## Architecture
 

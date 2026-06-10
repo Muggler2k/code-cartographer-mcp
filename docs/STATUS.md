@@ -4,12 +4,14 @@ _Last updated: 2026-06-10_
 
 ## TL;DR
 
-**The full product is implemented and tested (Epics A–K).** `init_codebase`
+**The full product is implemented and tested (Epics A–L).** `init_codebase`
 builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real
 `.code-cartographer-mcp/context-map.json` carrying files, languages, entry points,
 modules, ownership signals, a provider-extracted **static call graph**, and
-confidence-graded findings. Three provider tiers: the **TS/JS provider** (TS
-compiler API) type-resolves cross-file edges (`confirmed`); the **tree-sitter
+confidence-graded findings. Four provider tiers: the **TS/JS provider** (TS
+compiler API) type-resolves cross-file edges (`confirmed`); the **C# Roslyn
+provider** (ADR 0027 — an optional .NET sidecar, `confirmed`; without a .NET SDK
+C# falls back to tree-sitter); the **tree-sitter
 provider** parses 8 languages (Python, Go, Java, Rust, Ruby, C#, C++, C) via WASM
 grammars (`likely`), with cross-file resolution for Go (packages), Python
 (imports), and Rust (`use`/modules); a heuristic regex floor covers the rest
@@ -24,8 +26,8 @@ over one declarative tool table (`src/tools.ts`), and the type vocabulary lives 
 seven map-only rules — cycles, visibility hotspots, source→test violations, scattered
 ownership, statically untested modules, fan-out hotspots, entry-point orphans — plus
 re-export visibility (`OwnershipSignal.reExport`; barrels stop false-positiving the
-duplicate rule). **268 tests passing**;
-build/typecheck pass. Design is recorded in CAS Decisions 0001–0026. See
+duplicate rule). **279 tests passing**;
+build/typecheck pass. Design is recorded in CAS Decisions 0001–0027. See
 [`architecture.md`](./architecture.md), [`backlog.md`](./backlog.md), and
 [`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md).
 
@@ -40,7 +42,7 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0026. See
 | `src/analysisContext.ts` | **Implemented (ADR 0025).** The shared analysis-context seam: `withContext` owns the load → init-guard → close envelope (ADR 0024 open/close-per-call) and the shared uncertainty wordings; `makeAnalysisContext` is the injectable adapter that makes the `GraphSource` seam the test surface. Capabilities accept `AnalysisTarget` (root string or caller-owned context). |
 | `src/scope.ts` | **Implemented.** Configurable scope/exclusion subsystem (ADR 0009): 4 modes, `ScopeResolution`/`ScopePreview`/`WalkResult`/`RecordedScope`, and `detectLanguages`/`resolveScope`/`previewScope`/`walkFiles` (gitignore via the `ignore` pkg). |
 | `src/files.ts` | **Implemented.** `hashFile` (per-file SHA-256 + size, 5 MB cap→metadata hash, binary sniff, `analyzable`/`analysisReason`; ADR 0010) + `categorizeFile`. |
-| `src/providers/` | **Implemented.** `LanguageProvider` registry + three tiers: TS/JS provider (TS compiler API, type-resolved cross-file → `confirmed`), tree-sitter provider (Python/Go/Java/Rust/Ruby/C#/C++/C via WASM grammars → `likely`; cross-file resolution for Go/Python/Rust), and the heuristic regex floor (`candidate`). Engine clamps each to the provider's ceiling. (ADRs 0012/0013/0018/0021/0022.) |
+| `src/providers/` | **Implemented.** `LanguageProvider` registry + four tiers: TS/JS provider (TS compiler API, type-resolved cross-file → `confirmed`), **C# Roslyn provider** (`src/providers/csharp.ts` + the `tools/roslyn-analyzer` sidecar, ADR 0027 — optional `dotnet` gate, semantic-model-resolved cross-file edges → `confirmed`; dispatch capped `likely`; no SDK → tree-sitter keeps C#), tree-sitter provider (Python/Go/Java/Rust/Ruby/C#/C++/C via WASM grammars → `likely`; cross-file resolution for Go/Python/Rust), and the heuristic regex floor (`candidate`). Engine clamps each to the provider's ceiling. (ADRs 0012/0013/0018/0021/0022/0027.) |
 | `src/findings.ts` | **Implemented.** D4 derivation (ADR 0017) + derivation v2 (ADR 0026): duplicate / legacy (six-class, never dead) / canonical + parallel modules + risk areas — god-file, bypassed abstraction, **cyclic dependency clusters** (Tarjan SCC over resolved edges), **low-static-visibility hotspots**, **source→test violations**, **scattered ownership**, **statically untested modules**, **fan-out hotspots**, **entry-point-orphan modules** — all ≤ `candidate`, capped, with in-record uncertainty. Re-exports are aliases, never parallel implementations. |
 | `src/analysis.ts` | **Implemented.** The **10 capability functions** for CAP-07..16 (reachability, duplicate, legacy, change-impact, preflight, change-review, ownership, failure, test-paths, drift) over the persisted map, traversing a shared `GraphSource` (ADR 0024) — never hand-rolled adjacency; init-gated, confidence-capped, uncertainty-explicit (ADR 0019). |
 | `src/callGraph.ts` | **Implemented.** Static call-graph types + `mapCallStack` (CAP-23) over the shared `GraphSource` (ADR 0024); dynamic/DI/framework/reflection edges → `candidate`/`unresolved`. |
@@ -49,17 +51,17 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0026. See
 | `src/pathfinding.ts` | **Implemented.** The `NeighborSource`/`GraphSource` contract + `inMemoryGraphSource` fallback + `resolveNodeIds` + static point-to-point path-finding (ADR 0023/0024): bidirectional-BFS fewest-hop, max-bottleneck (widest-path) best-confidence, dominance-ordered k-best, iterative Tarjan SCC, structural `QueryMetrics`. Emitted confidence clamped to `likely`. |
 | `src/graphIndex.ts` | **Implemented.** A `GraphSource` backed by `graph-index.sqlite` (built-in `node:sqlite`, ADR 0023/0024): indexed caller/callee + `nodes_symbol`/`nodes_path` lookups, SCC cached once, stamped with `mapHash`, rebuilt when missing/schema-stale/hash-stale. `loadGraphContext` picks it for large graphs, else the in-memory fallback (SQLite optional). A disposable projection of `map.callGraph` — never a second source of truth. |
 | `src/pathQueries.ts` | **Implemented (ADR 0024).** The `find_callers` / `find_path` capabilities surfacing the path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results. |
-| `test/*.test.ts` | **268 tests passing, 0 `it.todo`** across 17 files (core map, scope/exclusion, providers, derivation, findings + **derivation v2**, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, the **analysisContext** seam, the **tools** table, and a structural **benchmark** suite). Shared fixtures (`test/helpers/fixtures.ts`): `tempRepos` + `testContextMap` builders (ADR 0025). |
+| `test/*.test.ts` | **279 tests passing, 0 `it.todo`** across 18 files (core map, scope/exclusion, providers + the **C# Roslyn tier** (`describe.runIf(dotnetAvailable)`), derivation, findings + **derivation v2**, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, the **analysisContext** seam, the **tools** table, and a structural **benchmark** suite). Shared fixtures (`test/helpers/fixtures.ts`): `tempRepos` + `testContextMap` builders (ADR 0025). |
 | Build / typecheck | **Pass** — compiles clean under strict TypeScript. |
 | `.code-cartographer-mcp/context-map.json` | **Produced** — `initCodebase` writes it atomically (temp + fsync + rename), artifact dir gitignored. Dogfooded on this repo (509 ownership signals, 467 call edges / 157 cross-file). |
 | `.code-cartographer-mcp/graph-index.sqlite` | **Derived (ADR 0023).** A rebuildable projection of `map.callGraph` (same gitignored dir). Stamped with `mapHash`; rebuilt on mismatch. The JSON map stays the single source of truth — `mapHash`/staleness composition is unchanged. |
 
 ## Remaining work
 
-Epics A–K are implemented (ADR 0024 graph-traversal unification; ADR 0025 internal seams; ADR 0026 findings derivation v2). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is fully resolved. What's left:
+Epics A–L are implemented (ADR 0024 graph-traversal unification; ADR 0025 internal seams; ADR 0026 findings derivation v2; ADR 0027 C# Roslyn provider). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is fully resolved. What's left:
 
 - **✅ DONE — Graph-traversal unification (HF-1 · Epic I · ADR 0024)** and **internal-seams deepening (Epic J · ADR 0025)**: one analysis-context envelope, one tool spec table behind MCP + CLI, schema/engine split, shared test fixtures.
-- **More language-specific providers** behind the existing `LanguageProvider` interface (e.g. C#/Roslyn, deeper Python/Go). Signature-aware duplicate detection was reviewed and deferred (ADR 0026).
+- **More language-specific providers** behind the existing `LanguageProvider` interface (C#/Roslyn ✅ done, ADR 0027; next candidates: deeper Python/Go). Signature-aware duplicate detection was reviewed and deferred (ADR 0026).
 - **Promote draft CAS policies** (`output-mode-policy.md`, workflows, prompts) from draft → accepted now that they are realized in code.
 - **Confirm final dependency pins** (architecture D5: `typescript` is a runtime dep; confirm SDK/zod/vitest pins; bump `engines.node` to ≥ 22.5 for `node:sqlite`) before any release.
 
@@ -68,9 +70,9 @@ Epics A–K are implemented (ADR 0024 graph-traversal unification; ADR 0025 inte
 Product requirements, policies, and decisions live in the sibling **CAS** repo
 `../debug_mcp_context_manager` (see [`cas-source-of-truth.md`](./cas-source-of-truth.md)).
 This repo owns implementation only. The CAS-side current-state record is
-`context/sessions/2026-06-10_richer-findings-adr-0026.md` and
-`context/00_index/index.md`; design is recorded in ADRs 0001–0026 under
-`context/07_decisions/` (ADR 0026 — findings derivation v2 — is implemented as Epic K).
+`context/sessions/2026-06-10_csharp-roslyn-adr-0027.md` and
+`context/00_index/index.md`; design is recorded in ADRs 0001–0027 under
+`context/07_decisions/` (ADR 0027 — the C# Roslyn provider — is implemented as Epic L).
 
 ## Next steps
 

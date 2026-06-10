@@ -1,6 +1,6 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); see per-epic notes below_
+_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); **Epic L done** (L1–L2) — optional C# Roslyn provider tier (ADR 0027); see per-epic notes below_
 
 The full tool/type **surface** is implemented (19 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
@@ -123,6 +123,12 @@ An architecture/product exploration chose seven richer findings rules + re-expor
 - **K1.** ✅ Seven map-only rules in `deriveFindings`: cyclic dependency clusters (Tarjan SCC over resolved edges, ≥ 2 files), low-static-visibility hotspots (weak-edge ratio — grades the map's own evidence), source→test dependency violations, scattered ownership (≥ 3 modules), statically untested modules (forward closure from test declarations; skipped without test decls), god-functions (fan-out ≥ 20), entry-point-orphan modules (closure from detected entry points; source modules only; never "dead"/"unused"). → `CAP-08`, `CAP-09`, `CAP-16`
 - **K2.** ✅ Re-export visibility: optional `OwnershipSignal.reExport` (additive, schema stays v1, `mapHash` untouched); the TS provider emits an alias signal — no call-graph node — for every exported name with no local declaration (`export {x} from` / `export * from` / import-then-export; `default` skipped); findings exclude aliases from duplicate/scatter grouping. → `CAP-13`
 - Deferred (recorded in ADR 0026): signature-aware duplicate detection.
+
+### Epic L — C# Roslyn provider: optional .NET sidecar, confirmed tier (ADR 0027) — ✅ DONE (L1–L2)
+The first post-MVP language-provider upgrade: C# moves from the tree-sitter tier (`likely`, no cross-file) to a compiler-API tier when the environment allows. Strictly optional — availability chooses the tier, never correctness (the SQLite pattern, ADR 0024).
+- **L1.** ✅ `tools/roslyn-analyzer` — single-file Roslyn console tool: ONE ad-hoc compilation over the batch's syntax trees (no MSBuild, `.Emit()` never called, no target execution/loading); emits namespace types + methods (`path#Type`/`path#Type.Method`, exported = public), CLEAN-binding-only resolved edges (virtual/abstract/override/interface dispatch → `method`; candidate/failed bindings → `unresolved` — never graded resolved), ctor/accessor calls attributed to the TYPE node, entry hints (static Main / top-level statements). → `CAP-13`, `CAP-23`
+- **L2.** ✅ `src/providers/csharp.ts` — `confirmed`-ceiling provider gated on a memoized `dotnet` probe; registry order `[typescript, csharp, treeSitter, heuristic]`; build memoized per process; file TEXTS passed to the sidecar (honors the `readFile` contract); `direct`→`confirmed`, `method`→`likely` (ADR 0016/0018); every failure path → empty extraction. Tests via `describe.runIf(dotnetAvailable)` — the ratified optional-dependency pattern. → `CAP-13`
+- Deferred (ADR 0027): fields/properties as ownership signals; multi-batch cross-project resolution; richer external references.
 
 ### Epic E — Verification
 - **E1.** Fill the 25 `it.todo` tests (core + analysis + call-stack/visualization, see §3) and any added coverage.

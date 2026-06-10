@@ -4,7 +4,7 @@ _Last updated: 2026-06-10 · Status: **design ratified and implemented** (decisi
 
 This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
-all of which are now **resolved and implemented** (Epics A–K; ADRs 0008–0026,
+all of which are now **resolved and implemented** (Epics A–L; ADRs 0008–0027,
 incl. the static path-finding + derived SQLite graph index of ADR 0023, the
 internal-seams reorganization of ADR 0025, and findings derivation v2 of ADR 0026).
 The decision table in §5 carries the resolution for each open question; D5
@@ -43,7 +43,8 @@ src/tools.ts      declarative tool spec table: 19 specs (ADR 0025)   [done]
 src/schema.ts     shared type vocabulary, behavior-free (ADR 0025)   [done]
 src/scope.ts      scope/exclusion: 4 modes, walk, preview (ADR 0009) [done]
 src/files.ts      hashFile + categorizeFile (ADR 0010)               [done]
-src/providers/    LanguageProvider registry + TS/tree-sitter/heur.   [done]
+src/providers/    registry + TS/C#-Roslyn/tree-sitter/heur. tiers    [done]
+tools/roslyn-analyzer/ optional .NET sidecar for the C# tier (0027)   [done]
 src/contextMap.ts map engine (build/persist/compare; types→schema)   [done]
 src/findings.ts   D4 findings derivation (ADR 0017)                  [done]
 src/analysisContext.ts shared withContext seam, injectable (0025)    [done]
@@ -70,7 +71,7 @@ Components inside the engine (all implemented):
 | C8 | **Findings** | duplicate-path, legacy-path, canonical + risk candidates (ADR 0017) and derivation v2 (ADR 0026): cyclic clusters, visibility hotspots, source→test violations, scattered ownership, untested modules, fan-out hotspots, entry-point orphans — all ≤ `candidate`, capped, uncertainty-carrying; re-exports treated as aliases | `CAP-08`, `CAP-09`, `CAP-16`, `POL-06`, `POL-07` |
 | C9 | **Persistence** | Write/read `.code-cartographer-mcp/context-map.json` | `CAP-01`, `CAP-17` |
 | C10 | **Formatters** | `StaticContextMap` → markdown / JSON, kept in sync with the schema | `CAP-03`, `CAP-18`, `CAP-19`, `CAP-20` |
-| C11 | **Language providers** | Pluggable per-language extraction of ownership signals, entry-point hints, and static call edges; tiered confidence ceiling (ADR 0012/0013). Three tiers: TS/JS compiler-API (`confirmed`), tree-sitter for 8 languages (`likely`, cross-file for Go/Python/Rust — ADR 0021/0022), heuristic floor (`candidate`). Feeds C5/C7/C8 and the call graph. | `CAP-13`, `CAP-08`, `CAP-23` |
+| C11 | **Language providers** | Pluggable per-language extraction of ownership signals, entry-point hints, and static call edges; tiered confidence ceiling (ADR 0012/0013). Four tiers: TS/JS compiler-API (`confirmed`), C# Roslyn sidecar (`confirmed`, optional `dotnet` gate — ADR 0027), tree-sitter for 8 languages (`likely`, cross-file for Go/Python/Rust — ADR 0021/0022), heuristic floor (`candidate`). Feeds C5/C7/C8 and the call graph. | `CAP-13`, `CAP-08`, `CAP-23` |
 | C12 | **Graph traversal substrate** | The one traversal substrate (ADR 0024): a `GraphSource` (neighbors + node lookups) with two implementations — `inMemoryGraphSource` (fallback, from the JSON map) and the SQLite `graph-index.sqlite` (`src/graphIndex.ts`, built-in `node:sqlite`). `loadGraphContext` picks the index for large graphs, else in-memory — **SQLite optional**. `analysis.ts`/`callGraph.ts` traverse it (no hand-rolled adjacency). Path-finding (`src/pathfinding.ts`: bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC) runs over it; emitted path confidence clamped to `likely`. Index is a rebuildable projection stamped with `mapHash`. Codebase-only — no runtime trace (ADR 0023/0024). | `CAP-23`, `CAP-07` |
 | C13 | **Path queries** | `find_callers` / `find_path` MCP tools (`src/pathQueries.ts`) surfacing the C12 path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results (ADR 0024). | `CAP-23`, `CAP-07` |
 | C14 | **Analysis context** | The shared analysis-context seam (`src/analysisContext.ts`, ADR 0025): `withContext` owns the load → init-guard → close envelope (ADR 0024 lifecycle) and the shared uncertainty wordings for every graph-query capability; `makeAnalysisContext` is the injectable adapter (capabilities take `AnalysisTarget` = root string or caller-owned context — the callee never closes an injected context). Makes the C12 seam the test surface. | `CAP-07..16`, `CAP-23` |
@@ -118,7 +119,7 @@ Decisions to confirm: see D2 (ownership extraction approach / multi-language) an
 | ID | Decision | Notes |
 |---|---|---|
 | **D1** ✓ | `schemaVersion` value | **Resolved — ADR 0008: `1`.** `SCHEMA_VERSION = 1` in `schema.ts` (moved from `contextMap.ts` by ADR 0025); provenance grouped under `meta`; added `summary.languages` + `summary.excluded`. |
-| **D2** ✓ | Ownership-signal extraction | **Resolved — ADR 0012/0013 + 0018/0021/0022.** Pluggable `LanguageProvider`, polyglot + tiered: TS/JS compiler-API (`confirmed`), **tree-sitter for Python/Go/Java/Rust/Ruby/C#/C++/C** (`likely`, with cross-file resolution for Go/Python/Rust), heuristic floor (`candidate`). Batch-per-language `analyze`, `maxConfidence` clamp, first-match selection. |
+| **D2** ✓ | Ownership-signal extraction | **Resolved — ADR 0012/0013 + 0018/0021/0022.** Pluggable `LanguageProvider`, polyglot + tiered: TS/JS compiler-API (`confirmed`), **C# Roslyn sidecar** (`confirmed`, optional — ADR 0027), **tree-sitter for Python/Go/Java/Rust/Ruby/C#/C++/C** (`likely`, with cross-file resolution for Go/Python/Rust), heuristic floor (`candidate`). Batch-per-language `analyze`, `maxConfidence` clamp, first-match selection. |
 | **D3** ✓ | Staleness algorithm | **Resolved — ADR 0010 + 0011.** Large-file/binary handling (0010); `mapHash` = sha256 of `schemaVersion` + `scopeHash` + sorted file-identity records (0011); staleness via cheap fingerprint (size+mtime+count+scopeHash+schemaVersion) → rehash → `mapHash` compare. Atomic temp+fsync+rename persistence; `.code-cartographer-mcp/` gitignored. |
 | **D4** ✓ | Findings heuristics | **Resolved — ADR 0017** (`src/findings.ts`): duplicate (exported-name collision), legacy (six-class, never dead), risk (god-file), canonical (sole owner), all ≤ `candidate` with in-record uncertainty. |
 | **D5** ◐ | Dependencies | **`typescript` becomes a runtime dependency** (the TS/JS provider needs the compiler API at runtime — ADR 0012); `ignore` already added (ADR 0009). Still open: confirm final SDK/zod/vitest pins before release. |
