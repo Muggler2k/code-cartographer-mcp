@@ -5,8 +5,8 @@
 // honestly (declarations candidate; exports candidate/unclear; call edges
 // direct-candidate same-file / unresolved cross-file) so the clamp is a guardrail.
 
-import type { Confidence, FileEntry, OwnershipSignal, OwnershipSignalKind } from "../contextMap.js";
-import type { CallEdge, CallEdgeKind, CallGraphNode } from "../callGraph.js";
+import type { Confidence, FileEntry, OwnershipSignal, OwnershipSignalKind } from "../schema.js";
+import type { CallEdge, CallEdgeKind, CallGraphNode } from "../schema.js";
 import type { LanguageProvider, ProviderExtraction, ProviderInput } from "./types.js";
 
 interface DeclPattern {

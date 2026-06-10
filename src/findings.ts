@@ -16,8 +16,8 @@ import type {
   ModuleGroup,
   OwnershipSignal,
   UncertaintyItem
-} from "./contextMap.js";
-import type { CallEdge, CallGraphNode } from "./callGraph.js";
+} from "./schema.js";
+import type { CallEdge, CallGraphNode } from "./schema.js";
 
 export interface FindingsInput {
   files: FileEntry[];

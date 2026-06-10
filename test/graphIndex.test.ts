@@ -13,7 +13,7 @@ import {
   openGraphIndex
 } from "../src/graphIndex.js";
 import { createMetrics, findFewestHopPath, findKBestPaths, inMemorySource } from "../src/pathfinding.js";
-import type { CallEdge } from "../src/callGraph.js";
+import type { CallEdge } from "../src/schema.js";
 
 // ---- Minimal hand-written map (isolates the index from provider behavior) ----
 

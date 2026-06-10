@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
-import { LARGE_FILE_THRESHOLD_BYTES, type AnalysisReason, type FileCategory, type HashScope } from "./contextMap.js";
+import { LARGE_FILE_THRESHOLD_BYTES, type AnalysisReason, type FileCategory, type HashScope } from "./schema.js";
 
 /** The hash/size/fingerprint fields of a `FileEntry` (everything except `path`/`category`). */
 export interface FileHash {

@@ -10,8 +10,8 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import Parser from "web-tree-sitter";
 
-import type { Confidence, EntryPoint, FileEntry, OwnershipSignal, OwnershipSignalKind } from "../contextMap.js";
-import type { CallEdge, CallEdgeKind, CallGraphNode } from "../callGraph.js";
+import type { Confidence, EntryPoint, FileEntry, OwnershipSignal, OwnershipSignalKind } from "../schema.js";
+import type { CallEdge, CallEdgeKind, CallGraphNode } from "../schema.js";
 import type { LanguageProvider, ProviderExtraction, ProviderInput } from "./types.js";
 
 const require = createRequire(import.meta.url);

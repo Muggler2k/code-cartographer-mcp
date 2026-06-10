@@ -5,28 +5,8 @@
 // Traversal runs over the shared `GraphSource` substrate (Decision 0024), not a
 // hand-rolled adjacency map. Requires an initialized context map.
 
-import type { Confidence, OwnershipSignalKind, UncertaintyItem } from "./contextMap.js";
+import type { CallEdge, CallGraphNode, UncertaintyItem } from "./schema.js";
 import { loadGraphContext } from "./graphIndex.js";
-
-/** How a call edge was resolved from static analysis. */
-export type CallEdgeKind = "direct" | "method" | "dynamic" | "framework" | "unresolved";
-
-export interface CallGraphNode {
-  /** Stable id, e.g. `${path}#${symbol}`. */
-  id: string;
-  symbol: string;
-  path: string;
-  kind: OwnershipSignalKind;
-  confidence: Confidence;
-}
-
-export interface CallEdge {
-  from: string;
-  to: string;
-  callKind: CallEdgeKind;
-  confidence: Confidence;
-  evidence: string[];
-}
 
 export interface CallStackResult {
   analysisBoundary: "codebase_only";

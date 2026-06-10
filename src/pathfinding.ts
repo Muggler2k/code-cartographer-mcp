@@ -4,17 +4,8 @@
 // reachability path — never a runtime stack or execution trace. Emitted confidence is
 // clamped to `likely` (Decision 0016): a static path is never `confirmed` runtime truth.
 
-import { clampConfidence, type Confidence } from "./contextMap.js";
-import type { CallEdge, CallGraphNode } from "./callGraph.js";
-
-/** Strength ordering (higher = stronger), mirrors contextMap's CONFIDENCE_RANK. */
-const CONFIDENCE_RANK: Record<Confidence, number> = {
-  confirmed: 5,
-  likely: 4,
-  candidate: 3,
-  unclear: 2,
-  unresolved: 1
-};
+import { CONFIDENCE_RANK, clampConfidence, type Confidence } from "./schema.js";
+import type { CallEdge, CallGraphNode } from "./schema.js";
 
 /** A static path is never runtime-proven, so its reported confidence cannot exceed this. */
 const PATH_CEILING: Confidence = "likely";

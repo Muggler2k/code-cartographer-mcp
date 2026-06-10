@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CallGraphNode } from "../src/callGraph.js";
-import type { FileEntry, OwnershipSignal } from "../src/contextMap.js";
+import type { CallGraphNode, FileEntry, OwnershipSignal } from "../src/schema.js";
 import { deriveFindings, type FindingsInput } from "../src/findings.js";
 
 function decl(id: string, kind: CallGraphNode["kind"] = "function"): CallGraphNode {

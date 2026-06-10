@@ -5,8 +5,8 @@
 // a heuristic guess can never masquerade as a parsed fact. Codebase-only:
 // providers read files statically and never execute the target.
 
-import type { Confidence, EntryPoint, FileEntry, OwnershipSignal } from "../contextMap.js";
-import type { CallEdge, CallGraphNode } from "../callGraph.js";
+import type { Confidence, EntryPoint, FileEntry, OwnershipSignal } from "../schema.js";
+import type { CallEdge, CallGraphNode } from "../schema.js";
 
 /** Everything a provider needs to analyze its slice of the repo. */
 export interface ProviderInput {

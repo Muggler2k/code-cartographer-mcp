@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { CallEdge } from "../src/callGraph.js";
-import { clampConfidence, type Confidence } from "../src/contextMap.js";
+import type { CallEdge } from "../src/schema.js";
+import { clampConfidence, type Confidence } from "../src/schema.js";
 import {
   findBestConfidencePath,
   findFewestHopPath,
