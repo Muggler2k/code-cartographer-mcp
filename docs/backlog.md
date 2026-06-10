@@ -130,11 +130,11 @@ The first post-MVP language-provider upgrade: C# moves from the tree-sitter tier
 - **L2.** ✅ `src/providers/csharp.ts` — `confirmed`-ceiling provider gated on a memoized `dotnet` probe; registry order `[typescript, csharp, treeSitter, heuristic]`; build memoized per process; file TEXTS passed to the sidecar (honors the `readFile` contract); `direct`→`confirmed`, `method`→`likely` (ADR 0016/0018); every failure path → empty extraction. Tests via `describe.runIf(dotnetAvailable)` — the ratified optional-dependency pattern. → `CAP-13`
 - Deferred (ADR 0027): fields/properties as ownership signals; multi-batch cross-project resolution; richer external references.
 
-### Epic E — Verification
-- **E1.** Fill the 25 `it.todo` tests (core + analysis + call-stack/visualization, see §3) and any added coverage.
-- **E2.** Wire the existing PostToolUse typecheck hook expectations; ensure `npm test` is green and meaningful.
+### Epic E — Verification — ✅ COMPLETE
+- **E1.** ✅ The original 25 `it.todo` tests (core + analysis + call-stack/visualization, see §3) are long since filled and grown far past — the suite has 0 `it.todo` (current count in [`STATUS.md`](./STATUS.md)).
+- **E2.** ✅ PostToolUse typecheck+test hooks wired; `npm test` green; the anti-slop gate (`npm run slop`) keeps it meaningful.
 
-## 3. Test plan — core map tests (part of the 25 `it.todo` in `test/contextMap.test.ts`)
+## 3. Test plan — core map tests (HISTORICAL: the original 25 `it.todo` seeds, all implemented since)
 
 The table below covers the core map tests. The 11 analysis `it.todo` tests (one per analysis tool plus the init-gating test) are tracked under Epic F and follow the same evidence/confidence/uncertainty acceptance shape.
 

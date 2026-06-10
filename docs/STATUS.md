@@ -28,8 +28,8 @@ ownership, statically untested modules, fan-out hotspots, entry-point orphans �
 re-export visibility (`OwnershipSignal.reExport`; barrels stop false-positiving the
 duplicate rule). **279 tests passing**;
 build/typecheck pass. Design is recorded in CAS Decisions 0001–0027. See
-[`architecture.md`](./architecture.md), [`backlog.md`](./backlog.md), and
-[`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md).
+[`architecture.md`](./architecture.md), [`backlog.md`](./backlog.md),
+[`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md), and [`csharp-roslyn-provider.md`](./csharp-roslyn-provider.md).
 
 ## What exists today (implemented)
 
@@ -53,7 +53,7 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0027. See
 | `src/pathQueries.ts` | **Implemented (ADR 0024).** The `find_callers` / `find_path` capabilities surfacing the path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results. |
 | `test/*.test.ts` | **279 tests passing, 0 `it.todo`** across 18 files (core map, scope/exclusion, providers + the **C# Roslyn tier** (`describe.runIf(dotnetAvailable)`), derivation, findings + **derivation v2**, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, the **analysisContext** seam, the **tools** table, and a structural **benchmark** suite). Shared fixtures (`test/helpers/fixtures.ts`): `tempRepos` + `testContextMap` builders (ADR 0025). |
 | Build / typecheck | **Pass** — compiles clean under strict TypeScript. |
-| `.code-cartographer-mcp/context-map.json` | **Produced** — `initCodebase` writes it atomically (temp + fsync + rename), artifact dir gitignored. Dogfooded on this repo (509 ownership signals, 467 call edges / 157 cross-file). |
+| `.code-cartographer-mcp/context-map.json` | **Produced** — `initCodebase` writes it atomically (temp + fsync + rename), artifact dir gitignored. Dogfooded on this repo (gitignore scope: 72 files, 459 ownership signals, 861 call edges as of Epic L). |
 | `.code-cartographer-mcp/graph-index.sqlite` | **Derived (ADR 0023).** A rebuildable projection of `map.callGraph` (same gitignored dir). Stamped with `mapHash`; rebuilt on mismatch. The JSON map stays the single source of truth — `mapHash`/staleness composition is unchanged. |
 
 ## Remaining work

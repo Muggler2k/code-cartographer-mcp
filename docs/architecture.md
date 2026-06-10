@@ -6,7 +6,7 @@ This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
 all of which are now **resolved and implemented** (Epics A–L; ADRs 0008–0027,
 incl. the static path-finding + derived SQLite graph index of ADR 0023, the
-internal-seams reorganization of ADR 0025, and findings derivation v2 of ADR 0026).
+internal-seams reorganization of ADR 0025, findings derivation v2 of ADR 0026, and the optional C# Roslyn provider tier of ADR 0027).
 The decision table in §5 carries the resolution for each open question; D5
 (dependency pins) is the only item with a residual release-prep tail.
 
@@ -108,11 +108,13 @@ Already chosen (in `package.json`); confirm or revisit:
 - **MCP:** `@modelcontextprotocol/sdk` (stdio transport), `zod` for tool input schemas.
 - **Tests:** Vitest.
 - **Dev/CLI:** `tsx` runs unbuilt `src/`; MCP clients point at built `dist/index.js`.
-- **AST:** the `typescript` compiler API was the prior approach for ownership
-  signals (TypeScript-only); it is currently not imported in `src/`. The
-  `typescript` devDependency itself is still used for build/typecheck (`tsc`).
+- **AST/semantic tiers:** the `typescript` compiler API is the live `confirmed`-tier
+  provider (`src/providers/typescript.ts`; `typescript` is a RUNTIME dependency — ADR 0012,
+  D5); `web-tree-sitter` + WASM grammars back the `likely` tier (ADR 0021); Roslyn backs
+  the optional C# `confirmed` tier via the `tools/roslyn-analyzer` .NET sidecar (ADR 0027 —
+  no npm dependency; `dotnet`-probe gated).
 
-Decisions to confirm: see D2 (ownership extraction approach / multi-language) and D5 (deps).
+Decisions: D2 (ownership extraction) and the tier model are resolved — see §5; D5's residual is release-prep pinning.
 
 ## 5. Open design decisions (resolve in the design session)
 

@@ -6,7 +6,7 @@ The Context Architecture System repository at `../debug_mcp_context_manager` rem
 
 ## Status: implemented (Epics A–L)
 
-**The full product is implemented and tested.** The MCP server registers all **19 tools** and the CLI dispatches them — both surfaces are adapters over one declarative tool spec table (ADR 0025); `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. 279 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0027. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md).
+**The full product is implemented and tested.** The MCP server registers all **19 tools** and the CLI dispatches them — both surfaces are adapters over one declarative tool spec table (ADR 0025); `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. 279 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0027. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md), and [`docs/csharp-roslyn-provider.md`](docs/csharp-roslyn-provider.md).
 
 ## Scope
 
@@ -15,6 +15,7 @@ A local stdio MCP server with codebase-only tools.
 Core map tools:
 
 - `check_init_state` — report whether a repository has a baseline map and whether it is stale.
+- `preview_scope` — step 1 of init: resolve which files would be in scope under an exclusion strategy, without writing anything.
 - `init_codebase` — scan a repository and write `.code-cartographer-mcp/context-map.json`.
 - `get_context_summary` — read the saved baseline map and return a compact summary.
 
@@ -27,6 +28,7 @@ Analysis tools (each requires an initialized map; all codebase-only):
 Call stack & visualization tools (codebase-only; visualizers return a diagram **spec** the client renders, not an image):
 
 - `map_call_stack` — static call graph rooted at an entry point, confidence-graded (dynamic / DI / framework edges → candidate/unresolved); never a runtime trace.
+- `find_callers` / `find_path` — direct static callers of a symbol, and fewest-hop / best-confidence static paths between two symbols (clamped to `likely`; never a runtime stack).
 - `visualize_call_stack` — render that call stack as a Mermaid / DOT / ASCII diagram spec with a confidence legend.
 - `visualize_architecture` — render modules / ownership / drift as a diagram spec.
 
