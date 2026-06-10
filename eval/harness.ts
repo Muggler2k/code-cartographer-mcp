@@ -104,6 +104,9 @@ export function checkInvariants(map: StaticContextMap, reachability: Reachabilit
     if (legacy.reachability !== "still_reachable" && legacy.uncertainty.length === 0) {
       violations.push(`legacy ${legacy.id} (${legacy.reachability}) missing the no-dead-code caveat`);
     }
+    if (legacy.reachability === "still_reachable" && legacy.uncertainty.length > 0) {
+      violations.push(`legacy ${legacy.id} still_reachable but carries uncertainty (expected empty — ADR 0017)`);
+    }
   }
   for (const ep of map.summary.entryPoints) {
     if (ep.kind !== "package_manifest" && !atMost(ep.confidence, "likely")) {
@@ -111,6 +114,7 @@ export function checkInvariants(map: StaticContextMap, reachability: Reachabilit
     }
   }
   for (const r of reachability) {
+    if (r.analysisBoundary !== "codebase_only") violations.push(`reachability result for '${r.subject}' missing the codebase_only envelope`);
     for (const p of r.reachablePaths) {
       if (p.confidence === "confirmed") violations.push(`reachability path ${p.id} graded confirmed`);
     }
