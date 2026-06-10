@@ -196,6 +196,14 @@ export interface OwnershipSignal {
   exported: boolean;
   confidence: Confidence;
   reason: string;
+  /**
+   * True when this exported name is an alias re-exported from another module
+   * (`export { x } from`, `export * from`, import-then-export) rather than a local
+   * declaration (Decision 0026). Additive + optional: absent (older maps / non-TS tiers)
+   * means "not a re-export"; excluded from `mapHash` (file-identity only, Decision 0011),
+   * so schema stays v1. Findings treat re-exports as aliases, never parallel implementations.
+   */
+  reExport?: boolean;
 }
 
 // ---- Static call graph vocabulary (Decision 0016; persisted in the map) ----

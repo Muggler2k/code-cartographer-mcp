@@ -189,6 +189,43 @@ describe("typeScriptProvider.analyze (Epic B, ADR 0018)", () => {
     expect(ex.declarations.some((d) => d.symbol === "localOnly")).toBe(false);
     expect(ex.declarations.some((d) => d.symbol === "main")).toBe(true);
   });
+
+  // Re-export visibility (Epic K, ADR 0026): a barrel's public surface becomes an ownership
+  // signal flagged `reExport`, with NO call-graph node — an alias is not a declaration.
+  it("emits a reExport ownership signal (no node) for `export { x } from`", async () => {
+    const ex = await typeScriptProvider.analyze(
+      providerInput({
+        "x.ts": "export function helper() { return 1; }\n",
+        "index.ts": "export { helper } from './x';\n"
+      })
+    );
+    const barrel = ex.ownershipSignals.find((s) => s.path === "index.ts" && s.symbol === "helper");
+    expect(barrel?.reExport).toBe(true);
+    expect(barrel?.exported).toBe(true);
+    expect(barrel?.kind).toBe("function");
+    expect(ex.declarations.some((d) => d.id === "index.ts#helper")).toBe(false);
+    // the real owner is untouched
+    const owner = ex.ownershipSignals.find((s) => s.path === "x.ts" && s.symbol === "helper");
+    expect(owner?.reExport).toBeUndefined();
+  });
+
+  it("covers `export * from` and import-then-export; local declarations are never flagged", async () => {
+    const ex = await typeScriptProvider.analyze(
+      providerInput({
+        "x.ts": "export class Widget {}\nexport const VALUE = 1;\n",
+        "star.ts": "export * from './x';\n",
+        "relay.ts": "import { VALUE } from './x';\nexport { VALUE };\nexport function local() {}\n"
+      })
+    );
+    const star = ex.ownershipSignals.filter((s) => s.path === "star.ts");
+    expect(star.find((s) => s.symbol === "Widget")?.reExport).toBe(true);
+    expect(star.find((s) => s.symbol === "Widget")?.kind).toBe("class");
+    expect(star.find((s) => s.symbol === "VALUE")?.reExport).toBe(true);
+    const relay = ex.ownershipSignals.filter((s) => s.path === "relay.ts");
+    expect(relay.find((s) => s.symbol === "VALUE")?.reExport).toBe(true);
+    expect(relay.find((s) => s.symbol === "local")?.reExport).toBeUndefined();
+    expect(ex.ownershipSignals.some((s) => s.symbol === "default")).toBe(false);
+  });
 });
 
 describe("treeSitterProvider.analyze (Epic deepen, ADR 0021)", () => {

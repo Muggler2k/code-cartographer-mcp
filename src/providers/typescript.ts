@@ -93,6 +93,25 @@ function symbolOf(checker: ts.TypeChecker, node: ts.Node, nameNode?: ts.Node): t
   return (nameNode ? checker.getSymbolAtLocation(nameNode) : undefined) ?? (node as { symbol?: ts.Symbol }).symbol;
 }
 
+/** Kind for a re-exported alias (Decision 0026): resolve the alias and map its symbol flags. */
+function reExportKind(checker: ts.TypeChecker, sym: ts.Symbol): OwnershipSignalKind {
+  let resolved = sym;
+  if (resolved.flags & ts.SymbolFlags.Alias) {
+    try {
+      resolved = checker.getAliasedSymbol(resolved);
+    } catch {
+      /* keep the alias symbol — flags below fall through to "const" */
+    }
+  }
+  const flags = resolved.flags;
+  if (flags & ts.SymbolFlags.Class) return "class";
+  if (flags & ts.SymbolFlags.Interface) return "interface";
+  if (flags & ts.SymbolFlags.TypeAlias) return "type";
+  if (flags & ts.SymbolFlags.Enum) return "enum";
+  if (flags & ts.SymbolFlags.Function) return "function";
+  return "const";
+}
+
 export const typeScriptProvider: LanguageProvider = {
   id: "typescript",
   maxConfidence: "confirmed",
@@ -139,9 +158,13 @@ export const typeScriptProvider: LanguageProvider = {
 
       // Exported-symbol set for this module (covers `export {}` / default).
       const exportedNames = new Set<string>();
+      const exportSymbols: ts.Symbol[] = [];
       const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
       if (moduleSymbol) {
-        for (const exp of checker.getExportsOfModule(moduleSymbol)) exportedNames.add(exp.name);
+        for (const exp of checker.getExportsOfModule(moduleSymbol)) {
+          exportedNames.add(exp.name);
+          exportSymbols.push(exp);
+        }
       }
       const isExported = (node: ts.Node, name: string): boolean => {
         const flags = ts.getCombinedModifierFlags(node as ts.Declaration);
@@ -196,6 +219,25 @@ export const typeScriptProvider: LanguageProvider = {
         ts.forEachChild(node, (child) => visitDecl(child, depth + 1));
       };
       visitDecl(sourceFile, 0);
+
+      // Re-export visibility (Decision 0026): an exported name with NO local declaration is an
+      // alias re-exported from another module (`export { x } from`, `export * from`,
+      // import-then-export). Emit an ownership signal so the file's public surface is visible to
+      // ownership analysis, but NO call-graph node — an alias is not a declaration. `default`
+      // is skipped (a re-exported default carries no usable symbol name).
+      for (const exp of exportSymbols) {
+        if (exp.name === "default") continue;
+        if (seenNodeIds.has(`${rel}#${exp.name}`)) continue;
+        ownershipSignals.push({
+          symbol: exp.name,
+          kind: reExportKind(checker, exp),
+          path: rel,
+          exported: true,
+          confidence: "confirmed",
+          reason: "re-export",
+          reExport: true
+        });
+      }
 
       // Entry-point hints.
       if (fileCategory.get(rel) === "test") {

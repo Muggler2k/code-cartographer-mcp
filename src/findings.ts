@@ -18,6 +18,7 @@ import type {
   UncertaintyItem
 } from "./schema.js";
 import type { CallEdge, CallGraphNode } from "./schema.js";
+import { tarjanScc } from "./pathfinding.js";
 
 export interface FindingsInput {
   files: FileEntry[];
@@ -59,6 +60,26 @@ function basenameOf(p: string): string {
 
 const MODULE_OVERLAP_RATIO = 0.6;
 const MAX_BYPASS_FINDINGS = 12;
+
+// Derivation-v2 thresholds + caps (Decision 0026). Every rule is capped so a dense
+// repo cannot flood the findings arrays; thresholds are conservative by design.
+const CYCLE_MIN_FILES = 2;
+const MAX_CYCLE_FINDINGS = 8;
+const VISIBILITY_MIN_EDGES = 5;
+const VISIBILITY_WEAK_RATIO = 0.5;
+const MAX_VISIBILITY_FINDINGS = 8;
+const MAX_SRC_TO_TEST_FINDINGS = 12;
+const SCATTER_MIN_MODULES = 3;
+const MAX_UNTESTED_FINDINGS = 10;
+const GOD_FUNCTION_FANOUT = 20;
+const MAX_GOD_FUNCTION_FINDINGS = 8;
+const MAX_ORPHAN_FINDINGS = 10;
+
+const WEAK_EDGE_KINDS = new Set(["dynamic", "framework", "unresolved"]);
+
+function pathOf(nodeId: string): string {
+  return nodeId.slice(0, nodeId.lastIndexOf("#"));
+}
 
 const DUP_UNCERTAINTY: UncertaintyItem[] = [
   {
@@ -106,10 +127,12 @@ export function deriveFindings(input: FindingsInput): DerivedFindings {
     ownByNodeId.set(`${sig.path}#${sig.symbol}`, sig);
   }
 
-  // Exported signals grouped by symbol name.
+  // Exported signals grouped by symbol name. Re-export signals are excluded (Decision 0026):
+  // an alias is the SAME implementation surfaced elsewhere, never a parallel one — without
+  // this, every barrel file would false-positive the name-collision rule below.
   const exportedByName = new Map<string, OwnershipSignal[]>();
   for (const sig of input.ownershipSignals) {
-    if (!sig.exported) continue;
+    if (!sig.exported || sig.reExport) continue;
     const bucket = exportedByName.get(sig.symbol) ?? [];
     bucket.push(sig);
     exportedByName.set(sig.symbol, bucket);
@@ -276,6 +299,229 @@ export function deriveFindings(input: FindingsInput): DerivedFindings {
         }
       ]
     });
+  }
+
+  // ---- Derivation v2 (Decision 0026) — shared precomputations ----
+
+  const categoryByPath = new Map(input.files.map((f) => [f.path, f.category]));
+  const moduleByPath = new Map<string, string>();
+  for (const mod of input.modules) {
+    for (const f of mod.files) moduleByPath.set(f, mod.root);
+  }
+  const declIdsByPath = new Map<string, string[]>();
+  for (const decl of input.declarations) {
+    (declIdsByPath.get(decl.path) ?? declIdsByPath.set(decl.path, []).get(decl.path)!).push(decl.id);
+  }
+  const resolvedOut = new Map<string, CallEdge[]>();
+  for (const edge of input.callEdges) {
+    if (!RESOLVED_KINDS.has(edge.callKind)) continue;
+    (resolvedOut.get(edge.from) ?? resolvedOut.set(edge.from, []).get(edge.from)!).push(edge);
+  }
+  /** Full forward closure over RESOLVED edges (build-time, O(E)); seeds are included. */
+  const forwardClosure = (seeds: Iterable<string>): Set<string> => {
+    const visited = new Set<string>(seeds);
+    const stack = [...visited];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const edge of resolvedOut.get(cur) ?? []) {
+        if (!visited.has(edge.to)) {
+          visited.add(edge.to);
+          stack.push(edge.to);
+        }
+      }
+    }
+    return visited;
+  };
+
+  // Rule 1 — cyclic dependency clusters: SCCs of the RESOLVED declaration graph spanning >= 2
+  // files. A static cycle is structural co-dependence, never proven runtime coupling harm.
+  const declIdSet = new Set(input.declarations.map((d) => d.id));
+  const cycleEdges = input.callEdges.filter((e) => RESOLVED_KINDS.has(e.callKind) && declIdSet.has(e.from) && declIdSet.has(e.to));
+  const scc = tarjanScc([...declIdSet], cycleEdges);
+  const cyclicComponents = scc.components
+    .filter((c) => c.length >= 2 && new Set(c.map(pathOf)).size >= CYCLE_MIN_FILES)
+    .sort((a, b) => b.length - a.length || (a[0] < b[0] ? -1 : 1))
+    .slice(0, MAX_CYCLE_FINDINGS);
+  for (const component of cyclicComponents) {
+    const memberFiles = new Set(component.map(pathOf));
+    const memberModules = new Set([...memberFiles].map((p) => moduleByPath.get(p) ?? p));
+    riskAreas.push({
+      finding: `Cyclic dependency cluster: ${component.length} declarations across ${memberFiles.size} file(s)${memberModules.size >= 2 ? ` and ${memberModules.size} module(s)` : ""} form a static call cycle.`,
+      confidence: "candidate",
+      evidence: [`members: ${[...component].sort().slice(0, 8).join(", ")}${component.length > 8 ? ", …" : ""}`, `${memberFiles.size} file(s): ${[...memberFiles].sort().slice(0, 6).join(", ")}`],
+      risk: "Members of a cycle change together; an edit anywhere in the cluster can ripple to all of it.",
+      recommendation: "Break the cycle at its weakest seam, or merge the cluster into one module intentionally.",
+      uncertainty: [
+        {
+          item: "Whether the static cycle is harmful at runtime",
+          reason: "A structural cycle proves co-dependence of declarations, not runtime coupling or initialization-order failure",
+          requiredConfirmation: "Human architectural review"
+        }
+      ]
+    });
+  }
+
+  // Rule 2 — low-static-visibility hotspots: files whose outgoing edges are mostly
+  // dynamic/framework/unresolved. This grades the MAP'S evidence quality, not the code.
+  const outStatsByPath = new Map<string, { total: number; weak: number }>();
+  for (const edge of input.callEdges) {
+    const fromPath = pathOf(edge.from);
+    if (!fromPath) continue;
+    const stats = outStatsByPath.get(fromPath) ?? { total: 0, weak: 0 };
+    stats.total++;
+    if (WEAK_EDGE_KINDS.has(edge.callKind)) stats.weak++;
+    outStatsByPath.set(fromPath, stats);
+  }
+  const visibilityHotspots = [...outStatsByPath.entries()]
+    .filter(([, s]) => s.total >= VISIBILITY_MIN_EDGES && s.weak / s.total >= VISIBILITY_WEAK_RATIO)
+    .sort((a, b) => b[1].weak / b[1].total - a[1].weak / a[1].total || (a[0] < b[0] ? -1 : 1))
+    .slice(0, MAX_VISIBILITY_FINDINGS);
+  for (const [path, stats] of visibilityHotspots) {
+    riskAreas.push({
+      finding: `${path}: ${stats.weak} of ${stats.total} outgoing call edges are dynamic/framework/unresolved — low static visibility.`,
+      confidence: "candidate",
+      evidence: [`${stats.weak}/${stats.total} weak outgoing edges`],
+      risk: "Findings and reachability hypotheses that pass through this file rest on weak static evidence.",
+      recommendation: "Treat conclusions involving this file with extra care; prefer runtime confirmation here.",
+      uncertainty: [
+        {
+          item: "Actual call targets of the unresolved edges",
+          reason: "Dynamic dispatch, reflection, and framework wiring are invisible to static analysis",
+          requiredConfirmation: "Runtime trace / debugger (out of scope)"
+        }
+      ]
+    });
+  }
+
+  // Rule 3 — source→test dependency: a resolved edge from a source-category file into a
+  // test-category file. Crisp directional violation; per (from-file, to-file) pair, capped.
+  const seenSrcToTest = new Set<string>();
+  for (const edge of input.callEdges) {
+    if (seenSrcToTest.size >= MAX_SRC_TO_TEST_FINDINGS) break;
+    if (!RESOLVED_KINDS.has(edge.callKind)) continue;
+    const fromPath = pathOf(edge.from);
+    const toPath = pathOf(edge.to);
+    if (categoryByPath.get(fromPath) !== "source" || categoryByPath.get(toPath) !== "test") continue;
+    const key = `${fromPath}|${toPath}`;
+    if (seenSrcToTest.has(key)) continue;
+    seenSrcToTest.add(key);
+    riskAreas.push({
+      finding: `${fromPath} (source) statically depends on test file ${toPath}.`,
+      confidence: inferenceConfidence([edge.confidence]),
+      evidence: [`${edge.from} → ${edge.to} (${edge.callKind})`],
+      risk: "Production code depending on test code inverts the dependency direction; test refactors can break the product.",
+      recommendation: "Move the shared helper into source, or invert the dependency.",
+      uncertainty: [
+        {
+          item: "Whether the dependency is sanctioned (e.g. deliberately published test utilities)",
+          reason: "File categorization is path-convention-based; a 'test' path may intentionally export tooling",
+          requiredConfirmation: "Human review of the target file's role"
+        }
+      ]
+    });
+  }
+
+  // Rule 4 — scattered ownership (closes the ADR 0017 gap): one exported name declared across
+  // >= 3 distinct modules. Re-exports are already excluded from `exportedByName` (aliases).
+  for (const [name, sigs] of exportedByName) {
+    const ownerModules = [...new Set(sigs.map((s) => moduleByPath.get(s.path) ?? s.path))].sort();
+    if (ownerModules.length < SCATTER_MIN_MODULES) continue;
+    riskAreas.push({
+      finding: `Exported '${name}' is declared in ${ownerModules.length} modules — scattered ownership.`,
+      confidence: inferenceConfidence(sigs.map((s) => s.confidence)),
+      evidence: sigs.map((s) => `${s.symbol} exported from ${s.path}`).sort(),
+      risk: "No single module owns this name; callers bind to different implementations and behavior fragments.",
+      recommendation: "Consolidate behind one canonical owner; re-export from there if multiple surfaces are needed.",
+      uncertainty: DUP_UNCERTAINTY
+    });
+  }
+
+  // Rule 5 — statically untested modules: source modules unreached by the forward closure from
+  // test-category declarations. Skipped entirely when the repo has no test declarations.
+  const testSeeds = input.declarations.filter((d) => categoryByPath.get(d.path) === "test").map((d) => d.id);
+  if (testSeeds.length > 0) {
+    const testReach = forwardClosure(testSeeds);
+    let untestedCount = 0;
+    for (const mod of input.modules) {
+      if (untestedCount >= MAX_UNTESTED_FINDINGS) break;
+      if (mod.category !== "source") continue;
+      const declIds = mod.files.flatMap((f) => declIdsByPath.get(f) ?? []);
+      if (declIds.length === 0) continue;
+      if (declIds.some((id) => testReach.has(id))) continue;
+      untestedCount++;
+      riskAreas.push({
+        finding: `Module ${mod.root} has no static test path: no test-category declaration reaches it via resolved edges.`,
+        confidence: "candidate",
+        evidence: [`${declIds.length} declaration(s) in ${mod.root}`, `${testSeeds.length} test declaration(s) seeded the closure`],
+        risk: "Changes here have no statically-visible test safety net.",
+        recommendation: "Add tests that exercise this module, or confirm coverage arrives via a path static analysis cannot see.",
+        uncertainty: [
+          {
+            item: "Whether tests reach this module dynamically",
+            reason: "Test discovery is runner-driven, and only resolved (direct/method) edges were traversed; framework-invoked or dynamic test paths are invisible",
+            requiredConfirmation: "Run the test suite with coverage"
+          }
+        ]
+      });
+    }
+  }
+
+  // Rule 6 — god-functions: per-declaration fan-out hotspots (complements the god-file rule).
+  const outCountByNode = new Map<string, number>();
+  for (const edge of input.callEdges) {
+    outCountByNode.set(edge.from, (outCountByNode.get(edge.from) ?? 0) + 1);
+  }
+  const godFunctions = [...outCountByNode.entries()]
+    .filter(([id, count]) => count >= GOD_FUNCTION_FANOUT && declIdSet.has(id))
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .slice(0, MAX_GOD_FUNCTION_FINDINGS);
+  for (const [id, count] of godFunctions) {
+    riskAreas.push({
+      finding: `${id} makes ${count} outgoing calls — a fan-out hotspot.`,
+      confidence: "candidate",
+      evidence: [`${count} outgoing call edges`],
+      risk: "High fan-out concentrates orchestration in one declaration; edits there touch many behaviors.",
+      recommendation: "Consider decomposing by responsibility; treat as high-impact in change review.",
+      uncertainty: [
+        {
+          item: "Whether the fan-out is a deliberate orchestrator/dispatcher",
+          reason: "A registration table or dispatcher legitimately calls many targets",
+          requiredConfirmation: "Human review of the declaration's role"
+        }
+      ]
+    });
+  }
+
+  // Rule 7 — entry-point-orphan modules: modules with declarations that the forward closure from
+  // DETECTED entry points never reaches. Skipped when no entry points were detected. Wording is
+  // load-bearing: "no static path from detected entry points" — never "unused"/"dead".
+  const entryPaths = new Set(input.entryPoints.map((e) => e.path));
+  const entrySeeds = input.declarations.filter((d) => entryPaths.has(d.path)).map((d) => d.id);
+  if (input.entryPoints.length > 0 && entrySeeds.length > 0) {
+    const entryReach = forwardClosure(entrySeeds);
+    let orphanCount = 0;
+    for (const mod of input.modules) {
+      if (orphanCount >= MAX_ORPHAN_FINDINGS) break;
+      if (mod.files.some((f) => entryPaths.has(f))) continue; // contains an entry point itself
+      const declIds = mod.files.flatMap((f) => declIdsByPath.get(f) ?? []);
+      if (declIds.length === 0) continue;
+      if (declIds.some((id) => entryReach.has(id))) continue;
+      orphanCount++;
+      riskAreas.push({
+        finding: `Module ${mod.root} has no static path from any detected entry point.`,
+        confidence: "candidate",
+        evidence: [`${declIds.length} declaration(s) in ${mod.root}`, `${input.entryPoints.length} detected entry point(s) seeded the closure`],
+        risk: "The module may be reached only through paths static analysis cannot see — or its consumers may live outside this repository.",
+        recommendation: "Confirm how this module is invoked before treating it as core or as removable; never assume unused.",
+        uncertainty: [
+          {
+            item: "Whether the module is reached dynamically or externally",
+            reason: "Entry-point detection is heuristic, and dynamic/framework/external invocation is invisible to static analysis (a missing static path never proves dead code)",
+            requiredConfirmation: "Runtime usage check / human confirmation"
+          }
+        ]
+      });
+    }
   }
 
   // Map-wide uncertainty register.
