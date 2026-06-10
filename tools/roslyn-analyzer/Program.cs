@@ -6,9 +6,14 @@
 //
 // Output semantics mirror the TS provider (ADR 0018):
 //   - declarations: namespace types + their methods; ids `path#Type` / `path#Type.Method`.
-//   - edges: semantic-model-resolved targets only; virtual/abstract/override/interface
-//     dispatch is "method" (runtime-polymorphic — the Node side caps it at `likely`);
-//     non-virtual resolved is "direct"; everything else is `unresolved#name`.
+//   - edges: CLEANLY semantic-model-resolved targets only (SymbolInfo.Symbol — a
+//     candidate/failed binding is NEVER graded as resolved); virtual/abstract/override/
+//     interface dispatch is "method" (runtime-polymorphic — the Node side caps it at
+//     `likely`); non-virtual resolved is "direct"; everything else is `unresolved#name`.
+//     Edges from constructors and property accessors attribute to the containing TYPE
+//     node. Known limitation (disclosed, ADR 0027): calls inside top-level statements
+//     and field initializers are not emitted as edges — the file still gets its entry
+//     hint, and absence of an edge is never evidence of absence of a call.
 //   - entry hints: a static Main or top-level statements.
 
 using System.Text.Json;
@@ -48,6 +53,9 @@ foreach (var file in request.Files)
     trees.Add(CSharpSyntaxTree.ParseText(file.Text ?? "", parseOptions, path: file.Path));
 }
 
+// OutputKind only shapes semantic checks (e.g. top-level statements need an exe kind on
+// some paths; DLL is the neutral choice). `.Emit()` is NEVER called — nothing is compiled
+// to a runnable artifact, loaded, or executed (codebase-only, ADR 0001/0027).
 var compilation = CSharpCompilation.Create(
     "codebase",
     trees,
@@ -139,6 +147,21 @@ foreach (var tree in trees)
                 var sym = model.GetDeclaredSymbol(m);
                 return sym is not null && symbolToId.TryGetValue(sym.OriginalDefinition, out var id) ? id : null;
             }
+            // Constructors and property accessors have no method node of their own (ADR 0027
+            // scopes declarations to types + methods) — attribute their calls to the TYPE node
+            // rather than dropping the edge silently.
+            if (cur is ConstructorDeclarationSyntax or AccessorDeclarationSyntax)
+            {
+                for (var owner = cur.Parent; owner is not null; owner = owner.Parent)
+                {
+                    if (owner is BaseTypeDeclarationSyntax ownerType)
+                    {
+                        var typeSym = model.GetDeclaredSymbol(ownerType);
+                        return typeSym is not null && symbolToId.TryGetValue(typeSym.OriginalDefinition, out var typeId) ? typeId : null;
+                    }
+                }
+                return null;
+            }
         }
         return null;
     }
@@ -157,9 +180,14 @@ foreach (var tree in trees)
         {
             var from = EnclosingId(invocation);
             if (from is null) continue;
-            var symbol = model.GetSymbolInfo(invocation).Symbol as IMethodSymbol
-                ?? model.GetSymbolInfo(invocation).CandidateSymbols.OfType<IMethodSymbol>().FirstOrDefault();
-            var target = symbol?.ReducedFrom?.OriginalDefinition ?? symbol?.OriginalDefinition;
+            // ONLY a clean binding (SymbolInfo.Symbol) can earn direct/method grading. A
+            // candidate symbol means the binder FAILED (ambiguity, arity mismatch, missing
+            // reference) — grading it as resolved would inflate a failed static inference
+            // toward `confirmed` (codebase-only contract, ADR 0001/0016/0027). Candidates
+            // contribute only a better NAME for the unresolved edge.
+            var info = model.GetSymbolInfo(invocation);
+            var clean = info.Symbol as IMethodSymbol;
+            var target = clean?.ReducedFrom?.OriginalDefinition ?? clean?.OriginalDefinition;
             var label = invocation.Expression.ToString();
             if (label.Length > 60) label = label[..60];
 
@@ -170,7 +198,9 @@ foreach (var tree in trees)
             }
             else
             {
-                var name = target?.Name ?? (invocation.Expression is MemberAccessExpressionSyntax ma ? ma.Name.Identifier.Text : label);
+                var candidate = info.CandidateSymbols.OfType<IMethodSymbol>().FirstOrDefault();
+                var name = target?.Name ?? candidate?.Name
+                    ?? (invocation.Expression is MemberAccessExpressionSyntax ma ? ma.Name.Identifier.Text : label);
                 Emit(from, $"unresolved#{name}", "unresolved", invocation, label);
             }
         }

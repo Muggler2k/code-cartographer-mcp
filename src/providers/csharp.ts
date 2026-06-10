@@ -108,6 +108,8 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs: number): Promi
 
 const SIGNAL_KINDS: ReadonlySet<string> = new Set(["class", "const", "enum", "function", "interface", "type"]);
 
+// The sidecar contract emits class|interface|enum|type|function; the fallback only guards a
+// future sidecar kind we have not mapped yet (it must never throw mid-build).
 function toKind(kind: string): OwnershipSignalKind {
   return (SIGNAL_KINDS.has(kind) ? kind : "const") as OwnershipSignalKind;
 }

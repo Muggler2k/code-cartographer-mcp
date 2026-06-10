@@ -13,7 +13,7 @@ import { heuristicProvider } from "./heuristic.js";
 /**
  * Ordered registry. Language-specific providers first; the heuristic floor LAST.
  * The C# Roslyn tier sits ahead of tree-sitter and only claims .cs files when the
- * `dotnet` CLI is available (ADR 0027) — otherwise tree-sitter keeps them.
+ * `dotnet` CLI is available (ADR 0027) — otherwise selection falls through to the tree-sitter tier.
  */
 export const PROVIDERS: readonly LanguageProvider[] = [typeScriptProvider, csharpProvider, treeSitterProvider, heuristicProvider];
 

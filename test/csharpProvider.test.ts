@@ -117,6 +117,37 @@ describe.runIf(available)("csharpProvider.analyze (ADR 0027 — Roslyn semantics
     expect(ex.entryPointHints.every((h) => h.kind === "source_entry" && h.confidence === "likely")).toBe(true);
   }, 120_000);
 
+  it("grades a FAILED binding (candidate symbol) as unresolved — never direct/confirmed (B-1 pin)", async () => {
+    // Helper(1) does not bind (arity mismatch): Roslyn returns it as a CANDIDATE symbol.
+    // A failed binding must never earn resolved grading (codebase-only contract).
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "Svc.cs": "public class Svc {\n  public void Run() { Helper(1); }\n  private void Helper() {}\n}\n"
+      })
+    );
+    const edge = ex.callEdges.find((e) => e.from === "Svc.cs#Svc.Run");
+    expect(edge?.to).toBe("unresolved#Helper");
+    expect(edge?.callKind).toBe("unresolved");
+    expect(edge?.confidence).toBe("unresolved");
+    expect(ex.callEdges.some((e) => e.to === "Svc.cs#Svc.Helper")).toBe(false);
+  }, 120_000);
+
+  it("attributes constructor and accessor calls to the containing TYPE node (S-1)", async () => {
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "Svc.cs":
+          "public class Svc {\n" +
+          "  public Svc() { Init(); }\n" +
+          "  public int Size { get { return Measure(); } }\n" +
+          "  private void Init() {}\n" +
+          "  private int Measure() { return 1; }\n" +
+          "}\n"
+      })
+    );
+    const fromType = ex.callEdges.filter((e) => e.from === "Svc.cs#Svc").map((e) => e.to).sort();
+    expect(fromType).toEqual(["Svc.cs#Svc.Init", "Svc.cs#Svc.Measure"]);
+  }, 120_000);
+
   it("degrades to an empty extraction on unreadable input, never throwing", async () => {
     const ex = await csharpProvider.analyze({
       repositoryRoot: "/repo",
