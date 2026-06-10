@@ -1,11 +1,12 @@
 # Architecture & Tech-Stack Design Brief
 
-_Last updated: 2026-06-08 · Status: **design ratified and implemented** (decisions D1–D8 resolved; see §5)_
+_Last updated: 2026-06-10 · Status: **design ratified and implemented** (decisions D1–D8 resolved; see §5)_
 
 This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
-all of which are now **resolved and implemented** (Epics A–I; ADRs 0008–0024,
-incl. the static path-finding + derived SQLite graph index of ADR 0023).
+all of which are now **resolved and implemented** (Epics A–J; ADRs 0008–0025,
+incl. the static path-finding + derived SQLite graph index of ADR 0023 and the
+internal-seams reorganization of ADR 0025).
 The decision table in §5 carries the resolution for each open question; D5
 (dependency pins) is the only item with a residual release-prep tail.
 
@@ -37,12 +38,15 @@ These bound every design choice and must survive the rebuild:
 The implemented layering:
 
 ```
-src/index.ts      MCP wiring: 19 tools + CLI (transport, dispatch)   [done]
+src/index.ts      entry point: 2 adapters over the tool table (0025) [done]
+src/tools.ts      declarative tool spec table: 19 specs (ADR 0025)   [done]
+src/schema.ts     shared type vocabulary, behavior-free (ADR 0025)   [done]
 src/scope.ts      scope/exclusion: 4 modes, walk, preview (ADR 0009) [done]
 src/files.ts      hashFile + categorizeFile (ADR 0010)               [done]
 src/providers/    LanguageProvider registry + TS/tree-sitter/heur.   [done]
-src/contextMap.ts core types + map engine (build/persist/compare)    [done]
+src/contextMap.ts map engine (build/persist/compare; types→schema)   [done]
 src/findings.ts   D4 findings derivation (ADR 0017)                  [done]
+src/analysisContext.ts shared withContext seam, injectable (0025)    [done]
 src/analysis.ts   analysis capabilities over a GraphSource (ADR 0024)[done]
 src/callGraph.ts  static call-graph + mapCallStack over GraphSource   [done]
 src/visualize.ts  visualization types + functions (CAP-24/25)        [done]
@@ -111,7 +115,7 @@ Decisions to confirm: see D2 (ownership extraction approach / multi-language) an
 
 | ID | Decision | Notes |
 |---|---|---|
-| **D1** ✓ | `schemaVersion` value | **Resolved — ADR 0008: `1`.** `SCHEMA_VERSION = 1` in `contextMap.ts`; provenance grouped under `meta`; added `summary.languages` + `summary.excluded`. |
+| **D1** ✓ | `schemaVersion` value | **Resolved — ADR 0008: `1`.** `SCHEMA_VERSION = 1` in `schema.ts` (moved from `contextMap.ts` by ADR 0025); provenance grouped under `meta`; added `summary.languages` + `summary.excluded`. |
 | **D2** ✓ | Ownership-signal extraction | **Resolved — ADR 0012/0013 + 0018/0021/0022.** Pluggable `LanguageProvider`, polyglot + tiered: TS/JS compiler-API (`confirmed`), **tree-sitter for Python/Go/Java/Rust/Ruby/C#/C++/C** (`likely`, with cross-file resolution for Go/Python/Rust), heuristic floor (`candidate`). Batch-per-language `analyze`, `maxConfidence` clamp, first-match selection. |
 | **D3** ✓ | Staleness algorithm | **Resolved — ADR 0010 + 0011.** Large-file/binary handling (0010); `mapHash` = sha256 of `schemaVersion` + `scopeHash` + sorted file-identity records (0011); staleness via cheap fingerprint (size+mtime+count+scopeHash+schemaVersion) → rehash → `mapHash` compare. Atomic temp+fsync+rename persistence; `.code-cartographer-mcp/` gitignored. |
 | **D4** ✓ | Findings heuristics | **Resolved — ADR 0017** (`src/findings.ts`): duplicate (exported-name collision), legacy (six-class, never dead), risk (god-file), canonical (sole owner), all ≤ `candidate` with in-record uncertainty. |

@@ -1,10 +1,10 @@
 # Project Status
 
-_Last updated: 2026-06-08_
+_Last updated: 2026-06-10_
 
 ## TL;DR
 
-**The full product is implemented and tested (Epics A–I).** `init_codebase`
+**The full product is implemented and tested (Epics A–J).** `init_codebase`
 builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real
 `.code-cartographer-mcp/context-map.json` carrying files, languages, entry points,
 modules, ownership signals, a provider-extracted **static call graph**, and
@@ -16,8 +16,12 @@ grammars (`likely`), with cross-file resolution for Go (packages), Python
 (`candidate`). All **19 MCP tools** and the CLI work end-to-end (dogfooded on this
 repo). A **static path-finding subsystem** (bidirectional-BFS fewest-hop, max-bottleneck
 best-confidence, k-best, Tarjan SCC) over a **derived `graph-index.sqlite`** (built-in
-`node:sqlite`) backs indexed caller/callee/path queries (ADR 0023). **~231 tests passing**;
-build/typecheck pass. Design is recorded in CAS Decisions 0001–0024. See
+`node:sqlite`) backs indexed caller/callee/path queries (ADR 0023). Internal seams are
+unified per **ADR 0025**: every graph query runs through one analysis-context envelope
+(`src/analysisContext.ts`, injectable for tests), the MCP + CLI surfaces are two adapters
+over one declarative tool table (`src/tools.ts`), and the type vocabulary lives in
+`src/schema.ts` apart from the map engine. **253 tests passing**;
+build/typecheck pass. Design is recorded in CAS Decisions 0001–0025. See
 [`architecture.md`](./architecture.md), [`backlog.md`](./backlog.md), and
 [`pathfinding-and-graph-index.md`](./pathfinding-and-graph-index.md).
 
@@ -25,8 +29,11 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0024. See
 
 | Area | State |
 |---|---|
-| `src/index.ts` | **Implemented.** Registers all **19 MCP tools** on an `McpServer` and a `main()` that dispatches the CLI (`preview`/`init`/`status`/`summary`/`reachability`/`duplicates`/`legacy`/`impact`/`preflight`/`review`/`ownership`/`failure`/`test-paths`/`drift`/`callstack`/`find-callers`/`find-path`/`viz-callstack`/`viz-arch`) or connects `StdioServerTransport`. Each handler calls a working engine/analysis function and formats via `output`. |
-| `src/contextMap.ts` | **Implemented.** The full shared vocabulary (`Confidence`, 3-mode `OutputMode`, 5-state `InitState`, six-field `Finding`, `Recommendation`, path/legacy/impact substructures), the ratified `StaticContextMap` shape (schema v1; `FileEntry` carries `hashScope`/`analyzable`/`analysisReason`/`mtimeMs`; `mapHash`/staleness per ADR 0011), and the map engine: `buildContextMap` (providers → ownership/entry hints/call graph + findings), atomic persistence, `initCodebase`/`checkInitState`, entry-point/module derivation. |
+| `src/index.ts` | **Implemented (ADR 0025).** The entry point is two thin adapters over the tool spec table: `registerTools(server)` for MCP (then `StdioServerTransport`), and a CLI dispatch that resolves the same table via `findCliSpec`/`cliArgs`. ~50 lines; tool definitions live in `tools.ts`. |
+| `src/tools.ts` | **Implemented (ADR 0025).** The declarative table of all **19 tool specs** — name, title, description, zod schema, CLI command/positionals (`preview`/`init`/`status`/`summary`/`reachability`/`duplicates`/`legacy`/`impact`/`preflight`/`review`/`ownership`/`failure`/`test-paths`/`drift`/`callstack`/`find-callers`/`find-path`/`viz-callstack`/`viz-arch`), and an `execute` that runs the capability and formats via `output`. The MCP and CLI surfaces render the same table, so they cannot drift; usage text derives from it. |
+| `src/schema.ts` | **Implemented (ADR 0025).** The behavior-free shared vocabulary: `Confidence` + rank + `clampConfidence`, 3-mode `OutputMode`, 5-state `InitState`, six-field `Finding`, `Recommendation`, path/legacy/impact substructures, `FileEntry` (`hashScope`/`analyzable`/`analysisReason`/`mtimeMs`), `CallGraphNode`/`CallEdge`, and the ratified `StaticContextMap` shape (schema v1, ADR 0008). |
+| `src/contextMap.ts` | **Implemented.** The map **engine** behind a three-function interface: `buildContextMap` (providers → ownership/entry hints/call graph + findings), atomic persistence, `initCodebase`/`checkInitState`/`readContextMap`, entry-point/module derivation, `mapHash`/staleness per ADR 0011. Types live in `schema.ts` (ADR 0025). |
+| `src/analysisContext.ts` | **Implemented (ADR 0025).** The shared analysis-context seam: `withContext` owns the load → init-guard → close envelope (ADR 0024 open/close-per-call) and the shared uncertainty wordings; `makeAnalysisContext` is the injectable adapter that makes the `GraphSource` seam the test surface. Capabilities accept `AnalysisTarget` (root string or caller-owned context). |
 | `src/scope.ts` | **Implemented.** Configurable scope/exclusion subsystem (ADR 0009): 4 modes, `ScopeResolution`/`ScopePreview`/`WalkResult`/`RecordedScope`, and `detectLanguages`/`resolveScope`/`previewScope`/`walkFiles` (gitignore via the `ignore` pkg). |
 | `src/files.ts` | **Implemented.** `hashFile` (per-file SHA-256 + size, 5 MB cap→metadata hash, binary sniff, `analyzable`/`analysisReason`; ADR 0010) + `categorizeFile`. |
 | `src/providers/` | **Implemented.** `LanguageProvider` registry + three tiers: TS/JS provider (TS compiler API, type-resolved cross-file → `confirmed`), tree-sitter provider (Python/Go/Java/Rust/Ruby/C#/C++/C via WASM grammars → `likely`; cross-file resolution for Go/Python/Rust), and the heuristic regex floor (`candidate`). Engine clamps each to the provider's ceiling. (ADRs 0012/0013/0018/0021/0022.) |
@@ -38,16 +45,16 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0024. See
 | `src/pathfinding.ts` | **Implemented.** The `NeighborSource`/`GraphSource` contract + `inMemoryGraphSource` fallback + `resolveNodeIds` + static point-to-point path-finding (ADR 0023/0024): bidirectional-BFS fewest-hop, max-bottleneck (widest-path) best-confidence, dominance-ordered k-best, iterative Tarjan SCC, structural `QueryMetrics`. Emitted confidence clamped to `likely`. |
 | `src/graphIndex.ts` | **Implemented.** A `GraphSource` backed by `graph-index.sqlite` (built-in `node:sqlite`, ADR 0023/0024): indexed caller/callee + `nodes_symbol`/`nodes_path` lookups, SCC cached once, stamped with `mapHash`, rebuilt when missing/schema-stale/hash-stale. `loadGraphContext` picks it for large graphs, else the in-memory fallback (SQLite optional). A disposable projection of `map.callGraph` — never a second source of truth. |
 | `src/pathQueries.ts` | **Implemented (ADR 0024).** The `find_callers` / `find_path` capabilities surfacing the path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results. |
-| `test/*.test.ts` | **231 tests passing, 0 `it.todo`** across 14 files (core map, scope/exclusion, providers, derivation, findings, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, and a structural **benchmark** suite). |
+| `test/*.test.ts` | **253 tests passing, 0 `it.todo`** across 16 files (core map, scope/exclusion, providers, derivation, findings, analysis, viz, call-stack, **pathfinding**, **graphIndex**, **pathQueries**, the **analysisContext** seam, the **tools** table, and a structural **benchmark** suite). Shared fixtures (`test/helpers/fixtures.ts`): `tempRepos` + `testContextMap` builders (ADR 0025). |
 | Build / typecheck | **Pass** — compiles clean under strict TypeScript. |
 | `.code-cartographer-mcp/context-map.json` | **Produced** — `initCodebase` writes it atomically (temp + fsync + rename), artifact dir gitignored. Dogfooded on this repo (509 ownership signals, 467 call edges / 157 cross-file). |
 | `.code-cartographer-mcp/graph-index.sqlite` | **Derived (ADR 0023).** A rebuildable projection of `map.callGraph` (same gitignored dir). Stamped with `mapHash`; rebuilt on mismatch. The JSON map stays the single source of truth — `mapHash`/staleness composition is unchanged. |
 
 ## Remaining work
 
-Epics A–I are implemented (ADR 0024 graph-traversal unification). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is fully resolved. What's left:
+Epics A–J are implemented (ADR 0024 graph-traversal unification; ADR 0025 internal seams). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is fully resolved. What's left:
 
-- **✅ DONE — Graph-traversal unification (HF-1 · Epic I · ADR 0024).** `analysis.ts`/`callGraph.ts` traverse a single `GraphSource` (the SQLite `GraphIndex` for large graphs, else an in-memory fallback; SQLite optional); the two hand-rolled adjacency engines are deleted; indexed symbol/path lookups added; the path-finding algorithms are surfaced as the `find_callers`/`find_path` tools (I3). Resolves HF-1, MF-8, MF-9, MF-12.
+- **✅ DONE — Graph-traversal unification (HF-1 · Epic I · ADR 0024)** and **internal-seams deepening (Epic J · ADR 0025)**: one analysis-context envelope, one tool spec table behind MCP + CLI, schema/engine split, shared test fixtures.
 - **More language-specific providers** behind the existing `LanguageProvider` interface (e.g. C#/Roslyn, deeper Python/Go), and richer findings rules.
 - **Promote draft CAS policies** (`output-mode-policy.md`, workflows, prompts) from draft → accepted now that they are realized in code.
 - **Confirm final dependency pins** (architecture D5: `typescript` is a runtime dep; confirm SDK/zod/vitest pins; bump `engines.node` to ≥ 22.5 for `node:sqlite`) before any release.
@@ -57,12 +64,11 @@ Epics A–I are implemented (ADR 0024 graph-traversal unification). PR #1 (the g
 Product requirements, policies, and decisions live in the sibling **CAS** repo
 `../debug_mcp_context_manager` (see [`cas-source-of-truth.md`](./cas-source-of-truth.md)).
 This repo owns implementation only. The CAS-side current-state record is
-`context/sessions/2026-06-08_epic-i-graphsource-wiring.md` and
-`context/00_index/index.md`; design is recorded in ADRs 0001–0024 under
-`context/07_decisions/` (ADR 0024 — graph-traversal unification — is implemented as Epic I).
+`context/sessions/2026-06-10_internal-seams-adr-0025.md` and
+`context/00_index/index.md`; design is recorded in ADRs 0001–0025 under
+`context/07_decisions/` (ADR 0025 — internal seams — is implemented as Epic J).
 
 ## Next steps
 
 1. **Polish / depth** — additional language providers, richer findings rules.
 2. **Release prep** — confirm dependency pins (D5), bump `engines.node` to ≥ 22.5, promote draft CAS policies to accepted.
-3. **Release prep** — confirm dependency pins (D5), bump `engines.node` to ≥ 22.5, promote draft CAS policies to accepted.
