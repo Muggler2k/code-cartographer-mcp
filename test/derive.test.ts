@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { FileEntry } from "../src/contextMap.js";
+import type { FileEntry } from "../src/schema.js";
 import { detectEntryPoints, groupModules } from "../src/contextMap.js";
 import { categorizeFile } from "../src/files.js";
 

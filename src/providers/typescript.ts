@@ -12,8 +12,8 @@
 import * as ts from "typescript";
 import * as path from "node:path";
 
-import type { Confidence, EntryPoint, FileEntry, OwnershipSignal, OwnershipSignalKind } from "../contextMap.js";
-import type { CallEdge, CallEdgeKind, CallGraphNode } from "../callGraph.js";
+import type { Confidence, EntryPoint, FileEntry, OwnershipSignal, OwnershipSignalKind } from "../schema.js";
+import type { CallEdge, CallEdgeKind, CallGraphNode } from "../schema.js";
 import type { LanguageProvider, ProviderExtraction, ProviderInput } from "./types.js";
 
 const TS_JS_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];

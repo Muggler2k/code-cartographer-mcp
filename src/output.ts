@@ -1,21 +1,20 @@
-// Skeleton only. Formatting is not implemented yet — every function throws.
-// Implementations must render each result in human_readable markdown, llm_readable
-// JSON, or dual (both), kept in sync with the result shapes, and must preserve
-// confidence labels and uncertainty in every mode (CAS output-mode-policy).
+// Formatting only (Decision 0015): one formatter per result type, each rendering in
+// human_readable markdown, llm_readable JSON, or dual (both), kept in sync with the
+// result shapes and preserving confidence labels and uncertainty in every mode
+// (CAS output-mode-policy).
 
+import type { InitResult, InitStatusResult } from "./contextMap.js";
 import type {
   CanonicalPath,
   ChangeImpactArea,
   DuplicatePath,
   Finding,
-  InitResult,
-  InitStatusResult,
   LegacyPath,
   OutputMode,
   Recommendation,
   StaticContextMap,
   UncertaintyItem
-} from "./contextMap.js";
+} from "./schema.js";
 import type {
   ArchitectureDriftResult,
   ChangeImpactResult,

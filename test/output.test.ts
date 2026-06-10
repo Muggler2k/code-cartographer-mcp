@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  FileEntry,
-  InitResult,
-  InitStatusResult,
-  OutputMode,
-  StaticContextMap
-} from "../src/contextMap.js";
+import type { InitResult, InitStatusResult } from "../src/contextMap.js";
+import type { FileEntry, OutputMode, StaticContextMap } from "../src/schema.js";
 import type {
   ArchitectureDriftResult,
   ChangeImpactResult,

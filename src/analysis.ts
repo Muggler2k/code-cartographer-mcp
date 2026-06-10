@@ -7,9 +7,10 @@
 // SQLite-backed `GraphIndex` when worthwhile, else the in-memory fallback from the
 // JSON map. This module never hand-rolls adjacency.
 
+import { readContextMap } from "./contextMap.js";
 import {
   clampConfidence,
-  readContextMap,
+  type CallGraphNode,
   type CanonicalPath,
   type ChangeImpactArea,
   type Confidence,
@@ -20,8 +21,7 @@ import {
   type Recommendation,
   type StaticContextMap,
   type UncertaintyItem
-} from "./contextMap.js";
-import type { CallGraphNode } from "./callGraph.js";
+} from "./schema.js";
 import { loadGraphContext } from "./graphIndex.js";
 import { resolveNodeIds, type GraphSource, type NeighborSource } from "./pathfinding.js";
 

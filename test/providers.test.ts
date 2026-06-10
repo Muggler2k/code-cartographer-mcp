@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Confidence, FileEntry } from "../src/contextMap.js";
+import type { Confidence, FileEntry } from "../src/schema.js";
 import { clampExtraction } from "../src/contextMap.js";
 import { heuristicProvider } from "../src/providers/heuristic.js";
 import { typeScriptProvider } from "../src/providers/typescript.js";

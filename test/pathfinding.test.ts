@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CallEdge } from "../src/callGraph.js";
+import type { CallEdge } from "../src/schema.js";
 import {
   createMetrics,
   findBestConfidencePath,

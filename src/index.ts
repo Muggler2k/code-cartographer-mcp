@@ -3,12 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import {
-  checkInitState,
-  initCodebase,
-  readContextMap,
-  type OutputMode
-} from "./contextMap.js";
+import { checkInitState, initCodebase, readContextMap } from "./contextMap.js";
+import type { OutputMode } from "./schema.js";
 import {
   analyzeChangeImpact,
   analyzeReachability,

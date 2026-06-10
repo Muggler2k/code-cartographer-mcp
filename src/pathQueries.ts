@@ -3,10 +3,10 @@
 // path — never a runtime trace; emitted confidence is clamped to `likely` (ADR 0016). Requires an
 // initialized context map; the source is opened and closed per call (Decision 0024).
 
-import { clampConfidence, type Confidence, type UncertaintyItem } from "./contextMap.js";
+import { clampConfidence, type Confidence, type UncertaintyItem } from "./schema.js";
 import { loadGraphContext } from "./graphIndex.js";
 import { findBestConfidencePath, findFewestHopPath, resolveNodeIds, type GraphSource, type StaticPath } from "./pathfinding.js";
-import type { CallEdgeKind } from "./callGraph.js";
+import type { CallEdgeKind } from "./schema.js";
 
 const BOUNDARY = "codebase_only" as const;
 

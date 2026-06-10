@@ -3,7 +3,7 @@
 // language-specific provider took. Non-analyzable files (binary/over-cap,
 // Decision 0010) are never handed to a provider.
 
-import type { FileEntry } from "../contextMap.js";
+import type { FileEntry } from "../schema.js";
 import type { LanguageProvider } from "./types.js";
 import { typeScriptProvider } from "./typescript.js";
 import { treeSitterProvider } from "./treeSitter.js";

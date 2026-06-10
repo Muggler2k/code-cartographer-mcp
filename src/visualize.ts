@@ -4,8 +4,8 @@
 // the server never produces rendered images. The diagram carries a legend so
 // confidence/edge-kind grading stays visible. Requires an initialized context map.
 
-import { readContextMap, type UncertaintyItem } from "./contextMap.js";
-import type { CallEdge, CallGraphNode } from "./callGraph.js";
+import { readContextMap } from "./contextMap.js";
+import type { CallEdge, CallGraphNode, UncertaintyItem } from "./schema.js";
 import { mapCallStack } from "./callGraph.js";
 import { detectArchitectureDrift } from "./analysis.js";
 

@@ -7,8 +7,8 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
-import { getMapPath, readContextMap, type StaticContextMap } from "./contextMap.js";
-import type { CallEdge, CallGraphNode } from "./callGraph.js";
+import { getMapPath, readContextMap } from "./contextMap.js";
+import type { CallEdge, CallGraphNode, StaticContextMap } from "./schema.js";
 import { inMemoryGraphSource, tarjanScc, type GraphSource, type SccResult } from "./pathfinding.js";
 
 const MAP_DIR = ".code-cartographer-mcp";
