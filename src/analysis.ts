@@ -7,7 +7,15 @@
 // SQLite-backed `GraphIndex` when worthwhile, else the in-memory fallback from the
 // JSON map. This module never hand-rolls adjacency.
 
-import { readContextMap } from "./contextMap.js";
+import {
+  BOUNDARY,
+  INIT_UNCERTAINTY,
+  RUNTIME_UNCERTAINTY,
+  nodeLabel,
+  withContext,
+  type AnalysisContext,
+  type AnalysisTarget
+} from "./analysisContext.js";
 import {
   clampConfidence,
   type CallGraphNode,
@@ -19,15 +27,13 @@ import {
   type ImpactLevel,
   type LegacyPath,
   type Recommendation,
-  type StaticContextMap,
   type UncertaintyItem
 } from "./schema.js";
-import { loadGraphContext } from "./graphIndex.js";
 import { resolveNodeIds, type GraphSource, type NeighborSource } from "./pathfinding.js";
 
 /**
  * Structural (codebase-only) reachability grade — never a runtime proof.
- * Distinct from the six-class `LegacyReachability` taxonomy in contextMap.ts:
+ * Distinct from the six-class `LegacyReachability` taxonomy in schema.ts:
  * CAP-07 reachability emits THIS grade; CAP-09 legacy classification uses the
  * six classes. Keep the two vocabularies separate when implementing.
  */
@@ -123,60 +129,13 @@ export interface ArchitectureDriftResult {
   uncertainty: UncertaintyItem[];
 }
 
-// ---- Shared analysis substrate (Decision 0016/0019/0024) ----
+// ---- Shared analysis substrate (Decision 0016/0019/0024/0025) ----
 
-const BOUNDARY = "codebase_only" as const;
 const MAX_DEPTH = 12;
-
-interface AnalysisContext {
-  map: StaticContextMap;
-  /** The single traversal substrate (Decision 0024): indexed or in-memory. */
-  source: GraphSource;
-  categoryByPath: Map<string, string>;
-}
-
-/** Load the persisted map + a traversal source once. Returns null when not initialized. */
-async function loadAnalysisContext(repositoryRoot: string): Promise<AnalysisContext | null> {
-  const gc = await loadGraphContext(repositoryRoot);
-  if (!gc) return null;
-  const categoryByPath = new Map(gc.map.files.map((f) => [f.path, f.category]));
-  return { map: gc.map, source: gc.source, categoryByPath };
-}
-
-/**
- * Run `fn` with a loaded context, guaranteeing the source is closed afterward (Decision 0024 —
- * open/close per call). Returns `whenUninitialized` if the map is not initialized.
- */
-async function withContext<T>(repositoryRoot: string, whenUninitialized: T, fn: (ctx: AnalysisContext) => T | Promise<T>): Promise<T> {
-  const ctx = await loadAnalysisContext(repositoryRoot);
-  if (!ctx) return whenUninitialized;
-  try {
-    return await fn(ctx);
-  } finally {
-    ctx.source.close();
-  }
-}
-
-const INIT_UNCERTAINTY: UncertaintyItem = {
-  item: "Context map is not initialized",
-  reason: "No baseline map at .code-cartographer-mcp/context-map.json (init before deep claims, Decision 0004).",
-  requiredConfirmation: "Run init_codebase, then re-run this analysis."
-};
-
-const RUNTIME_UNCERTAINTY: UncertaintyItem = {
-  item: "Reachability and change-impact are not runtime-proven",
-  reason: "All conclusions are static inferences (ADR 0001/0002); dynamic dispatch, DI, reflection, and config are invisible.",
-  requiredConfirmation: "Runtime trace / test execution (out of scope)."
-};
 
 /** Resolve a free-text subject to matching call-graph node ids (shared with the path-query tools). */
 function resolveTargets(source: GraphSource, query: string): string[] {
   return resolveNodeIds(source, query);
-}
-
-function nodeLabel(source: GraphSource, id: string): string {
-  const node = source.getNode(id);
-  return node ? `${node.symbol} (${node.path})` : id;
 }
 
 /** Traverse callees (`forward`) or callers from `starts`, recording the weakest edge confidence + kinds. */
@@ -233,9 +192,9 @@ function areaOf(ctx: AnalysisContext, path: string): string {
 // ---- Capabilities (CAP-07..16) ----
 
 /** CAP-07 — structural reachability context (hypotheses + uncertainty; never runtime-proven). */
-export async function analyzeReachability(repositoryRoot: string, target: string): Promise<ReachabilityResult> {
+export async function analyzeReachability(repoOrContext: AnalysisTarget, target: string): Promise<ReachabilityResult> {
   return withContext(
-    repositoryRoot,
+    repoOrContext,
     { analysisBoundary: BOUNDARY, subject: target, status: "unresolved", summary: "Not initialized.", reachablePaths: [], uncertainty: [INIT_UNCERTAINTY] },
     (ctx) => {
       const targets = resolveTargets(ctx.source, target);
@@ -261,8 +220,8 @@ export async function analyzeReachability(repositoryRoot: string, target: string
 }
 
 /** CAP-08 — duplicate-behavior detection (reads persisted candidates relevant to the subject). */
-export async function findDuplicateBehavior(repositoryRoot: string, subject: string): Promise<DuplicateBehaviorResult> {
-  return withContext(repositoryRoot, { analysisBoundary: BOUNDARY, subject, duplicatePaths: [], recommendation: undefined, uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
+export async function findDuplicateBehavior(repoOrContext: AnalysisTarget, subject: string): Promise<DuplicateBehaviorResult> {
+  return withContext(repoOrContext, { analysisBoundary: BOUNDARY, subject, duplicatePaths: [], recommendation: undefined, uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
     const q = subject.toLowerCase();
     const duplicatePaths: DuplicatePath[] = ctx.map.findings.duplicatePathCandidates.filter(
       (d) => d.label.toLowerCase().includes(q) || d.evidence.some((e) => e.toLowerCase().includes(q))
@@ -282,8 +241,8 @@ export async function findDuplicateBehavior(repositoryRoot: string, subject: str
 }
 
 /** CAP-09 — legacy-path classification (reads the six-class candidates computed at build time). */
-export async function classifyLegacyPaths(repositoryRoot: string): Promise<LegacyClassificationResult> {
-  return withContext(repositoryRoot, { analysisBoundary: BOUNDARY, legacyPaths: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
+export async function classifyLegacyPaths(repoOrContext: AnalysisTarget): Promise<LegacyClassificationResult> {
+  return withContext(repoOrContext, { analysisBoundary: BOUNDARY, legacyPaths: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
     return {
       analysisBoundary: BOUNDARY,
       legacyPaths: ctx.map.findings.legacyPathCandidates,
@@ -295,8 +254,8 @@ export async function classifyLegacyPaths(repositoryRoot: string): Promise<Legac
 }
 
 /** CAP-10 — change-impact (reverse-reach dependents; runtime blast-radius stays unresolved). */
-export async function analyzeChangeImpact(repositoryRoot: string, target: string): Promise<ChangeImpactResult> {
-  return withContext(repositoryRoot, { analysisBoundary: BOUNDARY, target, changeImpact: [], recommendation: undefined, uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
+export async function analyzeChangeImpact(repoOrContext: AnalysisTarget, target: string): Promise<ChangeImpactResult> {
+  return withContext(repoOrContext, { analysisBoundary: BOUNDARY, target, changeImpact: [], recommendation: undefined, uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
     const targets = resolveTargets(ctx.source, target);
     const reached = traverse(ctx.source, targets, false);
     const byArea = new Map<string, { count: number; crossModule: boolean; kinds: Set<string> }>();
@@ -327,45 +286,48 @@ export async function analyzeChangeImpact(repositoryRoot: string, target: string
 }
 
 /** CAP-11 — agent preflight review: compose ownership + duplicates + legacy + impact. */
-export async function reviewPreflight(repositoryRoot: string, requestedChange: string): Promise<PreflightReviewResult> {
-  // Preflight only composes the sub-capabilities (each loads + closes its own source), so it needs
-  // a cheap init-check — not its own traversal substrate (Decision 0024; avoids holding a handle open).
-  const map = await readContextMap(repositoryRoot);
-  if (!map) {
-    return { analysisBoundary: BOUNDARY, subject: requestedChange, status: "unresolved", summary: "Not initialized.", canonicalPaths: [], duplicatePaths: [], legacyPaths: [], changeImpact: [], recommendation: { action: "investigate", target: requestedChange, rationale: "Initialize the codebase map first." }, uncertainty: [INIT_UNCERTAINTY] };
-  }
-  const ownership = await getOwnership(repositoryRoot, requestedChange);
-  const duplicates = await findDuplicateBehavior(repositoryRoot, requestedChange);
-  const legacy = await classifyLegacyPaths(repositoryRoot);
-  const canonicalTarget = ownership.canonicalPaths[0]?.id ?? requestedChange;
-  const impact = await analyzeChangeImpact(repositoryRoot, canonicalTarget);
-  const relevantLegacy = legacy.legacyPaths.filter((l) => l.label.toLowerCase().includes(requestedChange.toLowerCase()));
+export async function reviewPreflight(repoOrContext: AnalysisTarget, requestedChange: string): Promise<PreflightReviewResult> {
+  // Preflight composes the sub-capabilities over ONE shared context (Decision 0025): a single
+  // load + close at this public surface instead of one per sub-capability (Decision 0024's
+  // open/close-per-call rule applies to the public call, which this is).
+  return withContext(
+    repoOrContext,
+    { analysisBoundary: BOUNDARY, subject: requestedChange, status: "unresolved", summary: "Not initialized.", canonicalPaths: [], duplicatePaths: [], legacyPaths: [], changeImpact: [], recommendation: { action: "investigate", target: requestedChange, rationale: "Initialize the codebase map first." }, uncertainty: [INIT_UNCERTAINTY] },
+    async (ctx) => {
+      const ownership = await getOwnership(ctx, requestedChange);
+      const duplicates = await findDuplicateBehavior(ctx, requestedChange);
+      const legacy = await classifyLegacyPaths(ctx);
+      const canonicalTarget = ownership.canonicalPaths[0]?.id ?? requestedChange;
+      const impact = await analyzeChangeImpact(ctx, canonicalTarget);
+      const relevantLegacy = legacy.legacyPaths.filter((l) => l.label.toLowerCase().includes(requestedChange.toLowerCase()));
 
-  const action: Recommendation["action"] =
-    ownership.canonicalPaths.length > 0 ? "reuse" : duplicates.duplicatePaths.length > 0 ? "consolidate" : relevantLegacy.length > 0 ? "avoid" : "investigate";
-  const recommendation: Recommendation = { action, target: canonicalTarget, rationale: action === "reuse" ? "A canonical owner exists; extend it rather than adding a parallel path." : action === "consolidate" ? "Duplicate paths exist; consolidate before adding more." : action === "avoid" ? "Legacy code is involved; avoid reviving it." : "No clear canonical owner found; investigate before implementing." };
+      const action: Recommendation["action"] =
+        ownership.canonicalPaths.length > 0 ? "reuse" : duplicates.duplicatePaths.length > 0 ? "consolidate" : relevantLegacy.length > 0 ? "avoid" : "investigate";
+      const recommendation: Recommendation = { action, target: canonicalTarget, rationale: action === "reuse" ? "A canonical owner exists; extend it rather than adding a parallel path." : action === "consolidate" ? "Duplicate paths exist; consolidate before adding more." : action === "avoid" ? "Legacy code is involved; avoid reviving it." : "No clear canonical owner found; investigate before implementing." };
 
-  const parts = [ownership.uncertainty, duplicates.uncertainty, legacy.uncertainty, impact.uncertainty].flat();
-  const seen = new Set<string>();
-  const uncertainty = parts.filter((u) => (seen.has(u.item) ? false : (seen.add(u.item), true)));
+      const parts = [ownership.uncertainty, duplicates.uncertainty, legacy.uncertainty, impact.uncertainty].flat();
+      const seen = new Set<string>();
+      const uncertainty = parts.filter((u) => (seen.has(u.item) ? false : (seen.add(u.item), true)));
 
-  return {
-    analysisBoundary: BOUNDARY,
-    subject: requestedChange,
-    status: strongest([ownership.canonicalPaths[0]?.confidence ?? "candidate", impact.changeImpact[0] ? "candidate" : "unclear"]),
-    summary: `Preflight for '${requestedChange}': ${ownership.canonicalPaths.length} canonical owner(s), ${duplicates.duplicatePaths.length} duplicate risk(s), ${relevantLegacy.length} legacy risk(s).`,
-    canonicalPaths: ownership.canonicalPaths,
-    duplicatePaths: duplicates.duplicatePaths,
-    legacyPaths: relevantLegacy,
-    changeImpact: impact.changeImpact,
-    recommendation,
-    uncertainty
-  };
+      return {
+        analysisBoundary: BOUNDARY,
+        subject: requestedChange,
+        status: strongest([ownership.canonicalPaths[0]?.confidence ?? "candidate", impact.changeImpact[0] ? "candidate" : "unclear"]),
+        summary: `Preflight for '${requestedChange}': ${ownership.canonicalPaths.length} canonical owner(s), ${duplicates.duplicatePaths.length} duplicate risk(s), ${relevantLegacy.length} legacy risk(s).`,
+        canonicalPaths: ownership.canonicalPaths,
+        duplicatePaths: duplicates.duplicatePaths,
+        legacyPaths: relevantLegacy,
+        changeImpact: impact.changeImpact,
+        recommendation,
+        uncertainty
+      };
+    }
+  );
 }
 
 /** CAP-12 — review of an agent-generated change against canonical paths + risk signals. */
-export async function reviewChange(repositoryRoot: string, changeDescription: string): Promise<ChangeReviewResult> {
-  return withContext(repositoryRoot, { analysisBoundary: BOUNDARY, subject: changeDescription, alignment: "mixed", findings: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
+export async function reviewChange(repoOrContext: AnalysisTarget, changeDescription: string): Promise<ChangeReviewResult> {
+  return withContext(repoOrContext, { analysisBoundary: BOUNDARY, subject: changeDescription, alignment: "mixed", findings: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
     const text = changeDescription.toLowerCase();
     const touchesCanonical = ctx.map.findings.canonicalPaths.some((c) => text.includes(c.label.toLowerCase().split(" ")[0]));
     const addsParallel = /\b(new|parallel|copy|duplicate|alternative|rewrite|reimplement)\b/.test(text);
@@ -380,8 +342,8 @@ export async function reviewChange(repositoryRoot: string, changeDescription: st
 }
 
 /** CAP-13 — canonical-path / ownership guidance (pure map-resident; the one capability not on edges). */
-export async function getOwnership(repositoryRoot: string, symbolOrPath: string): Promise<OwnershipResult> {
-  return withContext(repositoryRoot, { analysisBoundary: BOUNDARY, subject: symbolOrPath, canonicalPaths: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
+export async function getOwnership(repoOrContext: AnalysisTarget, symbolOrPath: string): Promise<OwnershipResult> {
+  return withContext(repoOrContext, { analysisBoundary: BOUNDARY, subject: symbolOrPath, canonicalPaths: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
     const q = symbolOrPath.toLowerCase();
     // Prefer persisted canonical paths matching the subject.
     const persisted = ctx.map.findings.canonicalPaths.filter((c) => c.label.toLowerCase().includes(q));
@@ -408,9 +370,9 @@ export async function getOwnership(repositoryRoot: string, symbolOrPath: string)
 }
 
 /** CAP-14 — failure-investigation hypotheses (not a debugger; runtime confirmation always required). */
-export async function investigateFailure(repositoryRoot: string, failureReference: string): Promise<FailureInvestigationResult> {
+export async function investigateFailure(repoOrContext: AnalysisTarget, failureReference: string): Promise<FailureInvestigationResult> {
   return withContext(
-    repositoryRoot,
+    repoOrContext,
     { analysisBoundary: BOUNDARY, subject: failureReference, hypotheses: [], requiredRuntimeConfirmation: ["Initialize the map, then investigate."], uncertainty: [INIT_UNCERTAINTY] },
     (ctx) => {
       const tokens = failureReference.match(/[A-Za-z_][\w.]*/g) ?? [];
@@ -449,8 +411,8 @@ export async function investigateFailure(repositoryRoot: string, failureReferenc
 }
 
 /** CAP-15 — which tests can statically reach a target. */
-export async function analyzeTestPaths(repositoryRoot: string, target: string): Promise<TestPathResult> {
-  return withContext(repositoryRoot, { analysisBoundary: BOUNDARY, target, reachingTests: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
+export async function analyzeTestPaths(repoOrContext: AnalysisTarget, target: string): Promise<TestPathResult> {
+  return withContext(repoOrContext, { analysisBoundary: BOUNDARY, target, reachingTests: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
     const targets = resolveTargets(ctx.source, target);
     const reached = traverse(ctx.source, targets, false);
     const reachingTests: ReachablePath[] = [];
@@ -470,8 +432,8 @@ export async function analyzeTestPaths(repositoryRoot: string, target: string): 
 }
 
 /** CAP-16 — architecture drift: scattered ownership / parallel systems / risk areas. */
-export async function detectArchitectureDrift(repositoryRoot: string): Promise<ArchitectureDriftResult> {
-  return withContext(repositoryRoot, { analysisBoundary: BOUNDARY, driftFindings: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
+export async function detectArchitectureDrift(repoOrContext: AnalysisTarget): Promise<ArchitectureDriftResult> {
+  return withContext(repoOrContext, { analysisBoundary: BOUNDARY, driftFindings: [], uncertainty: [INIT_UNCERTAINTY] }, (ctx) => {
     const driftFindings: Finding[] = [...ctx.map.findings.riskAreas];
     // Parallel systems from duplicate candidates.
     for (const dup of ctx.map.findings.duplicatePathCandidates) {
