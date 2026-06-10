@@ -13,42 +13,23 @@ import {
   openGraphIndex
 } from "../src/graphIndex.js";
 import { createMetrics, findFewestHopPath, findKBestPaths, inMemorySource } from "../src/pathfinding.js";
-import type { CallEdge } from "../src/schema.js";
+import type { CallEdge, CallGraphNode } from "../src/schema.js";
+import { testContextMap, testEdge, testNode } from "./helpers/fixtures.js";
 
 // ---- Minimal hand-written map (isolates the index from provider behavior) ----
 
-interface MiniNode {
-  id: string;
-  symbol: string;
-  path: string;
-  kind: string;
-  confidence: string;
+function node(id: string): CallGraphNode {
+  return testNode(id, { path: `${id}.ts` });
 }
-interface MiniEdge {
-  from: string;
-  to: string;
-  callKind: string;
-  confidence: string;
-  evidence: string[];
+function edge(from: string, to: string, confidence: CallEdge["confidence"] = "confirmed"): CallEdge {
+  return testEdge(from, to, { confidence });
 }
 
-function node(id: string): MiniNode {
-  return { id, symbol: id, path: `${id}.ts`, kind: "function", confidence: "likely" };
-}
-function edge(from: string, to: string, confidence = "confirmed"): MiniEdge {
-  return { from, to, callKind: "direct", confidence, evidence: [`${from}->${to}`] };
-}
-
-async function writeMap(root: string, mapHash: string, nodes: MiniNode[], edges: MiniEdge[]): Promise<void> {
+async function writeMap(root: string, mapHash: string, nodes: CallGraphNode[], edges: CallEdge[]): Promise<void> {
   const dir = path.join(root, ".code-cartographer-mcp");
   await fs.mkdir(dir, { recursive: true });
-  const map = {
-    meta: { schemaVersion: 1, toolVersion: "0.1.0", generatedAt: "t", repositoryRoot: root, mapHash, codebaseOnlyBoundary: true },
-    summary: {},
-    files: [],
-    callGraph: { nodes, edges },
-    findings: {}
-  };
+  const map = testContextMap({ nodes, edges });
+  map.meta = { ...map.meta, mapHash, repositoryRoot: root };
   await fs.writeFile(path.join(dir, "context-map.json"), JSON.stringify(map));
 }
 

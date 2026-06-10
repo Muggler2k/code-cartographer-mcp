@@ -1,29 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 
 import { detectLanguages, previewScope, resolveScope, walkFiles } from "../src/scope.js";
+import { tempRepos } from "./helpers/fixtures.js";
 
-const tmpDirs: string[] = [];
-
-/** Create a throwaway repo from a { relativePath: contents } map. */
-async function makeRepo(files: Record<string, string>): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-scope-"));
-  tmpDirs.push(root);
-  for (const [rel, content] of Object.entries(files)) {
-    const full = path.join(root, rel);
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, content);
-  }
-  return root;
-}
-
-afterEach(async () => {
-  while (tmpDirs.length > 0) {
-    await fs.rm(tmpDirs.pop()!, { recursive: true, force: true });
-  }
-});
+const { makeRepo, cleanup } = tempRepos("ccm-scope-");
+afterEach(cleanup);
 
 describe("detectLanguages (A3a, Decision 0009)", () => {
   it("returns [] when no known languages are present", async () => {

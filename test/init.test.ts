@@ -1,28 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 
 import { checkInitState, initCodebase, readContextMap } from "../src/contextMap.js";
+import { tempRepos } from "./helpers/fixtures.js";
 
-const tmpDirs: string[] = [];
-
-async function makeRepo(files: Record<string, string>): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-init-"));
-  tmpDirs.push(root);
-  for (const [rel, content] of Object.entries(files)) {
-    const full = path.join(root, rel);
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, content);
-  }
-  return root;
-}
-
-afterEach(async () => {
-  while (tmpDirs.length > 0) {
-    await fs.rm(tmpDirs.pop()!, { recursive: true, force: true });
-  }
-});
+const { makeRepo, cleanup } = tempRepos("ccm-init-");
+afterEach(cleanup);
 
 describe("init build + persistence + staleness (A5 / A3e)", () => {
   it("reports not_initialized before init", async () => {

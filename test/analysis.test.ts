@@ -1,9 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { promises as fs } from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 
 import { initCodebase } from "../src/contextMap.js";
+import { tempRepos } from "./helpers/fixtures.js";
 import {
   analyzeChangeImpact,
   analyzeReachability,
@@ -17,26 +15,20 @@ import {
   reviewPreflight
 } from "../src/analysis.js";
 
+const { makeRepo, cleanup } = tempRepos("ccm-an-");
+afterAll(cleanup);
+
 let root: string;
 
 beforeAll(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-an-"));
   const files: Record<string, string> = {
     "src/x.ts": "export function helper() { return 1; }\n",
     "src/a.ts": "import { helper } from './x';\nexport function main() { return helper(); }\n",
     "src/legacy/old.ts": "export function oldThing() { return 2; }\n",
     "test/a.test.ts": "import { main } from '../src/a';\nexport function t() { return main(); }\n"
   };
-  for (const [rel, content] of Object.entries(files)) {
-    const full = path.join(root, rel);
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, content);
-  }
+  root = await makeRepo(files);
   await initCodebase(root, { mode: "none" });
-});
-
-afterAll(async () => {
-  await fs.rm(root, { recursive: true, force: true });
 });
 
 describe("analysis capabilities (Epic F, CAP-07..16)", () => {
@@ -98,14 +90,10 @@ describe("analysis capabilities (Epic F, CAP-07..16)", () => {
   });
 
   it("every capability returns the init-required envelope (not a throw) when uninitialized", async () => {
-    const empty = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-empty-"));
-    try {
-      const r = await analyzeReachability(empty, "x");
-      expect(r.status).toBe("unresolved");
-      expect(r.uncertainty[0].item).toMatch(/not initialized/i);
-    } finally {
-      await fs.rm(empty, { recursive: true, force: true });
-    }
+    const empty = await makeRepo();
+    const r = await analyzeReachability(empty, "x");
+    expect(r.status).toBe("unresolved");
+    expect(r.uncertainty[0].item).toMatch(/not initialized/i);
   });
 });
 
@@ -116,7 +104,6 @@ describe("analysis classification logic (HF-5 / HF-6 regression)", () => {
   let root2: string;
 
   beforeAll(async () => {
-    root2 = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-an2-"));
     const files: Record<string, string> = {
       // High fan-in: `core` is called by five dependents in one area -> a `high` impact area.
       "src/core/shared.ts": "export function core() { return 1; }\n",
@@ -130,16 +117,8 @@ describe("analysis classification logic (HF-5 / HF-6 regression)", () => {
       "src/featA/parse.ts": "export function parse() { return 1; }\n",
       "src/featB/parse.ts": "export function parse() { return 2; }\n"
     };
-    for (const [rel, content] of Object.entries(files)) {
-      const full = path.join(root2, rel);
-      await fs.mkdir(path.dirname(full), { recursive: true });
-      await fs.writeFile(full, content);
-    }
+    root2 = await makeRepo(files);
     await initCodebase(root2, { mode: "none" });
-  });
-
-  afterAll(async () => {
-    await fs.rm(root2, { recursive: true, force: true });
   });
 
   const RANK: Record<string, number> = { confirmed: 5, likely: 4, candidate: 3, unclear: 2, unresolved: 1 };
@@ -174,7 +153,6 @@ describe("analysis reachability — depth cap + weak-edge grading (MF-4 regressi
   let root3: string;
 
   beforeAll(async () => {
-    root3 = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-an3-"));
     const N = 15; // a0 -> a1 -> ... -> a14, a chain longer than MAX_DEPTH (12)
     let chain = "export function a0() { return a1(); }\n";
     for (let i = 1; i < N - 1; i++) chain += `function a${i}() { return a${i + 1}(); }\n`;
@@ -184,16 +162,8 @@ describe("analysis reachability — depth cap + weak-edge grading (MF-4 regressi
       // `entry` reaches `helper` directly and an unknown symbol via an unresolved edge.
       "src/dyn.ts": "export function entry() { helper(); missingThing(); }\nfunction helper() { return 1; }\n"
     };
-    for (const [rel, content] of Object.entries(files)) {
-      const full = path.join(root3, rel);
-      await fs.mkdir(path.dirname(full), { recursive: true });
-      await fs.writeFile(full, content);
-    }
+    root3 = await makeRepo(files);
     await initCodebase(root3, { mode: "none" });
-  });
-
-  afterAll(async () => {
-    await fs.rm(root3, { recursive: true, force: true });
   });
 
   it("does not report nodes beyond MAX_DEPTH (12) hops from the target", async () => {

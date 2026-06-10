@@ -1,31 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { promises as fs } from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-
 import { initCodebase } from "../src/contextMap.js";
 import { mapCallStack } from "../src/callGraph.js";
 import { visualizeArchitecture, visualizeCallStack } from "../src/visualize.js";
+import { tempRepos } from "./helpers/fixtures.js";
 
+const { makeRepo, cleanup } = tempRepos("ccm-viz-");
 let root: string;
 
 beforeAll(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-viz-"));
-  const files: Record<string, string> = {
+  root = await makeRepo({
     "src/x.ts": "export function helper() { return 1; }\n",
     "src/a.ts": "import { helper } from './x';\nexport function main() { return helper(); }\n"
-  };
-  for (const [rel, content] of Object.entries(files)) {
-    const full = path.join(root, rel);
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, content);
-  }
+  });
   await initCodebase(root, { mode: "none" });
 });
 
-afterAll(async () => {
-  await fs.rm(root, { recursive: true, force: true });
-});
+afterAll(cleanup);
 
 describe("mapCallStack (CAP-23)", () => {
   it("builds a confidence-graded call graph rooted at an entry point", async () => {
@@ -44,14 +34,10 @@ describe("mapCallStack (CAP-23)", () => {
   });
 
   it("returns an init-required envelope when not initialized", async () => {
-    const empty = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-cs-empty-"));
-    try {
-      const cs = await mapCallStack(empty, "x");
-      expect(cs.nodes).toEqual([]);
-      expect(cs.uncertainty[0].item).toMatch(/not initialized/i);
-    } finally {
-      await fs.rm(empty, { recursive: true, force: true });
-    }
+    const empty = await makeRepo();
+    const cs = await mapCallStack(empty, "x");
+    expect(cs.nodes).toEqual([]);
+    expect(cs.uncertainty[0].item).toMatch(/not initialized/i);
   });
 });
 
@@ -84,12 +70,8 @@ describe("visualizeArchitecture (CAP-25)", () => {
   });
 
   it("returns an init-required envelope when not initialized (does not throw)", async () => {
-    const empty = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-arch-empty-"));
-    try {
-      const r = await visualizeArchitecture(empty);
-      expect(r.uncertainty[0].item).toMatch(/not initialized/i);
-    } finally {
-      await fs.rm(empty, { recursive: true, force: true });
-    }
+    const empty = await makeRepo();
+    const r = await visualizeArchitecture(empty);
+    expect(r.uncertainty[0].item).toMatch(/not initialized/i);
   });
 });

@@ -1,24 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 
 import { categorizeFile, hashFile } from "../src/files.js";
+import { tempRepos } from "./helpers/fixtures.js";
 
-const tmpDirs: string[] = [];
+const { makeRepo, cleanup } = tempRepos("ccm-files-");
+afterEach(cleanup);
 
 async function writeFixture(name: string, data: string | Buffer): Promise<{ root: string; rel: string }> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ccm-files-"));
-  tmpDirs.push(root);
+  const root = await makeRepo();
   await fs.writeFile(path.join(root, name), data);
   return { root, rel: name };
 }
-
-afterEach(async () => {
-  while (tmpDirs.length > 0) {
-    await fs.rm(tmpDirs.pop()!, { recursive: true, force: true });
-  }
-});
 
 describe("hashFile (A4, Decision 0010/0011)", () => {
   it("hashes a text file: content scope, analyzable, sha256 + size", async () => {
