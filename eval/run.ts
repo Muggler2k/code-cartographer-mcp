@@ -17,13 +17,18 @@ async function main(): Promise<void> {
   const results: SubjectResult[] = [];
   const skipped: string[] = [];
 
+  const baselines = JSON.parse(await fs.readFile(path.join(EVAL_DIR, "baselines.json"), "utf8")) as {
+    fixtures: Record<string, { pathQuery?: { from: string; to: string } }>;
+  };
+
   for (const name of FIXTURES) {
     if (name === "csharp-small" && !dotnetAvailable()) {
       skipped.push(`${name} (no dotnet CLI — the C# golden encodes the Roslyn tier)`);
       continue;
     }
     const golden = await loadGolden(path.join(EVAL_DIR, "goldens", `${name}.json`));
-    results.push(await runSubject(name, path.join(EVAL_DIR, "fixtures", name), golden));
+    const benchQuery = baselines.fixtures[name]?.pathQuery;
+    results.push(await runSubject(name, path.join(EVAL_DIR, "fixtures", name), golden, { benchQuery }));
   }
 
   for (const external of (process.env.CCM_EVAL_EXTERNAL ?? "").split(";").map((p) => p.trim()).filter(Boolean)) {
@@ -38,13 +43,14 @@ async function main(): Promise<void> {
 
   // ---- Report ----
   const lines: string[] = [];
-  lines.push("subject                         pass  req  found  forbid  invariants  initMs  files  nodes  edges  ~tokens");
+  lines.push("subject                         pass  req  found  forbid  invariants  initMs  idxMs  files  nodes  edges  ~tokens  pq(exp/nq/sq)");
   for (const r of results) {
     const req = Object.values(r.scores).reduce((n, s) => n + s.required, 0);
     const found = Object.values(r.scores).reduce((n, s) => n + s.found, 0);
     const forbid = Object.values(r.scores).reduce((n, s) => n + s.forbiddenHits.length, 0);
+    const pq = r.bench.pathQuery ? `${r.bench.pathQuery.expandedNodeCount}/${r.bench.pathQuery.neighborQueryCount}/${r.bench.pathQuery.sqliteQueryCount}` : "-";
     lines.push(
-      `${r.subject.padEnd(30)}  ${r.pass ? "PASS" : "FAIL"}  ${String(req).padStart(3)}  ${String(found).padStart(5)}  ${String(forbid).padStart(6)}  ${String(r.invariantViolations.length).padStart(10)}  ${String(r.perf.initMs).padStart(6)}  ${String(r.perf.files).padStart(5)}  ${String(r.perf.nodes).padStart(5)}  ${String(r.perf.edges).padStart(5)}  ${String(r.tokenShape.summaryTokensApprox).padStart(7)}`
+      `${r.subject.padEnd(30)}  ${r.pass ? "PASS" : "FAIL"}  ${String(req).padStart(3)}  ${String(found).padStart(5)}  ${String(forbid).padStart(6)}  ${String(r.invariantViolations.length).padStart(10)}  ${String(r.perf.initMs).padStart(6)}  ${String(r.bench.indexBuildMs).padStart(5)}  ${String(r.perf.files).padStart(5)}  ${String(r.perf.nodes).padStart(5)}  ${String(r.perf.edges).padStart(5)}  ${String(r.tokenShape.summaryTokensApprox).padStart(7)}  ${pq.padStart(13)}`
     );
   }
   for (const s of skipped) lines.push(`skipped: ${s}`);

@@ -11,9 +11,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 
-import { initCodebase } from "../src/contextMap.js";
+import { initCodebase, type ProviderTiming } from "../src/contextMap.js";
 import { analyzeReachability, type ReachabilityResult } from "../src/analysis.js";
 import { formatContextSummary, formatReachability } from "../src/output.js";
+import { openGraphIndex } from "../src/graphIndex.js";
+import { createMetrics, findFewestHopPath } from "../src/pathfinding.js";
 import { CONFIDENCE_RANK, type Confidence, type StaticContextMap } from "../src/schema.js";
 
 // ---- Golden schema (human-authored static ground truth) ----
@@ -47,12 +49,35 @@ export interface CategoryScore {
   forbiddenHits: string[];
 }
 
+/** Benchmark section (Epic Q, ADR 0030): structural metrics gate hard; time/space record or soft-gate. */
+export interface BenchResult {
+  /** Wall-clock per provider during init (record / soft-ceiling only). */
+  providers: ProviderTiming[];
+  /** Heap delta across init, MB (record-only — GC noise makes it ungateable). */
+  heapDeltaMb: number;
+  /** SQLite graph-index build time (soft ceiling). */
+  indexBuildMs: number;
+  /** Fixed path query over the SQLite index (structural — hard gates). */
+  pathQuery?: {
+    from: string;
+    to: string;
+    hops: number | null;
+    expandedNodeCount: number;
+    visitedNodeCount: number;
+    neighborQueryCount: number;
+    sqliteQueryCount: number;
+    sccBuildCount: number;
+    durationMs: number;
+  };
+}
+
 export interface SubjectResult {
   subject: string;
   scores: Record<string, CategoryScore>;
   invariantViolations: string[];
   perf: { initMs: number; files: number; nodes: number; edges: number };
   tokenShape: { summaryChars: number; summaryTokensApprox: number; reachabilityChars: number };
+  bench: BenchResult;
   /** True when every required item was found and nothing forbidden appeared. */
   pass: boolean;
 }
@@ -132,6 +157,12 @@ export interface RunOptions {
    * how the product actually maps them.
    */
   scopeMode?: "auto" | "gitignore" | "language" | "none";
+  /**
+   * Fixed path query for the bench section (ADR 0030): run over the SQLite `GraphIndex`
+   * (opened explicitly — benching the index on small graphs is the point) with
+   * `QueryMetrics`, producing the structural numbers the gates pin.
+   */
+  benchQuery?: { from: string; to: string };
 }
 
 /** Copy the subject to a temp dir (fixtures stay pristine), init, score, clean up. */
@@ -141,9 +172,11 @@ export async function runSubject(name: string, subjectDir: string, golden: Golde
     await fs.cp(subjectDir, tmp, { recursive: true });
     await fs.rm(path.join(tmp, ".code-cartographer-mcp"), { recursive: true, force: true });
 
+    const heapBefore = process.memoryUsage().heapUsed;
     const start = performance.now();
-    const { map } = await initCodebase(tmp, { mode: options.scopeMode ?? "none" });
+    const { map, timings } = await initCodebase(tmp, { mode: options.scopeMode ?? "none" });
     const initMs = performance.now() - start;
+    const heapDeltaMb = Math.round(((process.memoryUsage().heapUsed - heapBefore) / 1024 / 1024) * 10) / 10;
 
     const scores: Record<string, CategoryScore> = {};
 
@@ -247,6 +280,36 @@ export async function runSubject(name: string, subjectDir: string, golden: Golde
 
     const invariantViolations = checkInvariants(map, reachResults);
 
+    // ---- Bench section (Epic Q, ADR 0030): SQLite index build + a fixed structural query ----
+    const bench: BenchResult = { providers: timings?.providers ?? [], heapDeltaMb, indexBuildMs: -1 };
+    const indexStart = performance.now();
+    const index = await openGraphIndex(tmp, map);
+    bench.indexBuildMs = Math.round(performance.now() - indexStart);
+    if (index) {
+      try {
+        if (options.benchQuery) {
+          const metrics = createMetrics();
+          const queryStart = performance.now();
+          const found = findFewestHopPath(index, options.benchQuery.from, options.benchQuery.to, {}, metrics);
+          index.getScc(); // SCC built once per snapshot — sccBuildCount must stay 1 (ADR 0023)
+          index.getScc();
+          bench.pathQuery = {
+            from: options.benchQuery.from,
+            to: options.benchQuery.to,
+            hops: found ? found.hops : null,
+            expandedNodeCount: metrics.expandedNodeCount,
+            visitedNodeCount: metrics.visitedNodeCount,
+            neighborQueryCount: metrics.neighborQueryCount,
+            sqliteQueryCount: index.sqliteQueryCount,
+            sccBuildCount: index.sccBuildCount,
+            durationMs: Math.round((performance.now() - queryStart) * 10) / 10
+          };
+        }
+      } finally {
+        index.close();
+      }
+    }
+
     const summaryJson = formatContextSummary(map, "llm_readable");
     const reachJson = reachResults.length > 0 ? formatReachability(reachResults[0], "llm_readable") : "";
     const tokenShape = {
@@ -265,6 +328,7 @@ export async function runSubject(name: string, subjectDir: string, golden: Golde
       invariantViolations,
       perf: { initMs: Math.round(initMs), files: map.summary.totalFiles, nodes: map.callGraph.nodes.length, edges: map.callGraph.edges.length },
       tokenShape,
+      bench,
       pass
     };
   } finally {

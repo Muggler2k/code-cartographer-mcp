@@ -1,0 +1,61 @@
+{
+  "_comment": "Epic Q baselines (ADR 0030). STRUCTURAL values gate HARD (exact, or summaryChars ± tolerancePct): a red gate is a real product change — update the baseline consciously, with reasoning in the commit, never by auto-regeneration. softCeilingsMs are ~10×-class sanity ceilings for wall-clock (generous on purpose; csharp/mixed cover a cold sidecar build incl. NuGet restore). csharp-small and mixed encode the Roslyn tier and are only gated where the dotnet CLI exists.",
+  "fixtures": {
+    "ts-small": {
+      "structural": { "files": 7, "nodes": 9, "edges": 6, "summaryChars": 4347, "summaryCharsTolerancePct": 20 },
+      "pathQuery": {
+        "from": "src/index.ts#main",
+        "to": "src/math.ts#normalize",
+        "hops": 2,
+        "expandedNodeCount": 2,
+        "visitedNodeCount": 3,
+        "neighborQueryCount": 2,
+        "sqliteQueryCount": 2
+      },
+      "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
+    },
+    "python-small": {
+      "structural": { "files": 4, "nodes": 4, "edges": 2, "summaryChars": 2478, "summaryCharsTolerancePct": 20 },
+      "pathQuery": {
+        "from": "test_main.py#test_main",
+        "to": "util.py#helper",
+        "hops": 2,
+        "expandedNodeCount": 2,
+        "visitedNodeCount": 3,
+        "neighborQueryCount": 2,
+        "sqliteQueryCount": 2
+      },
+      "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
+    },
+    "csharp-small": {
+      "structural": { "files": 2, "nodes": 7, "edges": 3, "summaryChars": 2921, "summaryCharsTolerancePct": 20 },
+      "pathQuery": {
+        "from": "Program.cs#Program.Main",
+        "to": "Greeter.cs#Greeter",
+        "hops": 1,
+        "expandedNodeCount": 1,
+        "visitedNodeCount": 3,
+        "neighborQueryCount": 1,
+        "sqliteQueryCount": 1
+      },
+      "softCeilingsMs": { "init": 120000, "indexBuild": 5000 }
+    },
+    "mixed": {
+      "structural": { "files": 5, "nodes": 4, "edges": 0, "summaryChars": 2165, "summaryCharsTolerancePct": 20 },
+      "softCeilingsMs": { "init": 120000, "indexBuild": 5000 }
+    },
+    "edge-cases": {
+      "structural": { "files": 9, "nodes": 21, "edges": 17, "summaryChars": 6276, "summaryCharsTolerancePct": 20 },
+      "pathQuery": {
+        "from": "deepChain.ts#a0",
+        "to": "deepChain.ts#a14",
+        "hops": 14,
+        "expandedNodeCount": 14,
+        "visitedNodeCount": 15,
+        "neighborQueryCount": 14,
+        "sqliteQueryCount": 14
+      },
+      "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
+    }
+  }
+}
