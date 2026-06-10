@@ -78,7 +78,8 @@ const MAX_ORPHAN_FINDINGS = 10;
 const WEAK_EDGE_KINDS = new Set(["dynamic", "framework", "unresolved"]);
 
 function pathOf(nodeId: string): string {
-  return nodeId.slice(0, nodeId.lastIndexOf("#"));
+  const hash = nodeId.lastIndexOf("#");
+  return hash === -1 ? nodeId : nodeId.slice(0, hash);
 }
 
 const DUP_UNCERTAINTY: UncertaintyItem[] = [
@@ -502,6 +503,7 @@ export function deriveFindings(input: FindingsInput): DerivedFindings {
     let orphanCount = 0;
     for (const mod of input.modules) {
       if (orphanCount >= MAX_ORPHAN_FINDINGS) break;
+      if (mod.category !== "source") continue; // a test/config module unreached from entries is expected, not a finding
       if (mod.files.some((f) => entryPaths.has(f))) continue; // contains an entry point itself
       const declIds = mod.files.flatMap((f) => declIdsByPath.get(f) ?? []);
       if (declIds.length === 0) continue;

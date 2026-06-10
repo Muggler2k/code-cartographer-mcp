@@ -99,6 +99,7 @@ describe("rule 3 — source→test dependency", () => {
     );
     const hit = f.riskAreas.find((r) => /statically depends on test file/i.test(r.finding));
     expect(hit).toBeDefined();
+    expect(hit?.confidence).toBe("candidate");
     expect(hit?.uncertainty.length).toBeGreaterThan(0);
 
     const reverse = deriveFindings(
@@ -122,6 +123,9 @@ describe("rule 4 — scattered ownership (ADR 0017 gap)", () => {
       })
     );
     expect(three.riskAreas.some((r) => /scattered ownership/i.test(r.finding))).toBe(true);
+    // Intentional overlap: the same name also stays a duplicate candidate — the duplicate entry
+    // records the pairwise alias risk; the scatter risk area records the ownership fragmentation.
+    expect(three.duplicatePathCandidates).toHaveLength(1);
 
     const two = deriveFindings(
       input({
@@ -169,6 +173,10 @@ describe("rule 5 — statically untested modules", () => {
     const untested = f.riskAreas.filter((r) => /no static test path/i.test(r.finding));
     expect(untested).toHaveLength(1);
     expect(untested[0].finding).toContain("src/m2");
+    // Dead code is never asserted (governance Statement 6) — pin the wording.
+    expect(untested[0].finding).not.toMatch(/dead|unused|removable/i);
+    expect(untested[0].risk).not.toMatch(/dead|unused|removable/i);
+    expect(untested[0].recommendation).not.toMatch(/dead|unused|removable/i);
   });
 
   it("is skipped entirely when the repo has no test declarations", () => {
