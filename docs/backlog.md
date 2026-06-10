@@ -1,6 +1,6 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); **Epic L done** (L1–L2) — optional C# Roslyn provider tier (ADR 0027); see per-epic notes below_
+_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); **Epic L done** (L1–L2) — optional C# Roslyn provider tier (ADR 0027); **Epic M done** (M1–M2) — capability evaluation harness (ADR 0029); **Epics N–T planned** per the v0.2 roadmap (ADR 0028); see per-epic notes below_
 
 The full tool/type **surface** is implemented (19 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
@@ -129,6 +129,21 @@ The first post-MVP language-provider upgrade: C# moves from the tree-sitter tier
 - **L1.** ✅ `tools/roslyn-analyzer` — single-file Roslyn console tool: ONE ad-hoc compilation over the batch's syntax trees (no MSBuild, `.Emit()` never called, no target execution/loading); emits namespace types + methods (`path#Type`/`path#Type.Method`, exported = public), CLEAN-binding-only resolved edges (virtual/abstract/override/interface dispatch → `method`; candidate/failed bindings → `unresolved` — never graded resolved), ctor/accessor calls attributed to the TYPE node, entry hints (static Main / top-level statements). → `CAP-13`, `CAP-23`
 - **L2.** ✅ `src/providers/csharp.ts` — `confirmed`-ceiling provider gated on a memoized `dotnet` probe; registry order `[typescript, csharp, treeSitter, heuristic]`; build memoized per process; file TEXTS passed to the sidecar (honors the `readFile` contract); `direct`→`confirmed`, `method`→`likely` (ADR 0016/0018); every failure path → empty extraction. Tests via `describe.runIf(dotnetAvailable)` — the ratified optional-dependency pattern. → `CAP-13`
 - Deferred (ADR 0027): fields/properties as ownership signals; multi-batch cross-project resolution; richer external references.
+
+### Epic M — Capability evaluation harness (ADR 0029) — ✅ DONE (M1–M2)
+Eval-first (ADR 0028): the engine's risk is unverified claims, so quality is now a measured number.
+- **M1.** ✅ `eval/` — five golden-annotated fixture repos + `eval/harness.ts` scorer (symbol/exported/edge/entry accuracy, duplicate + legacy correctness incl. class, findings-v2 patterns, reachability mustReach/mustNotReach, binary handling) + universal confidence invariants checked on every subject + perf/token-shape recording. Goldens are human-authored static ground truth (`eval/goldens/README.md`), never regenerated from output.
+- **M2.** ✅ `npm run eval` scorecard runner (external real repos via `CCM_EVAL_EXTERNAL`, auto scope, invariants-only) + `test/evalHarness.test.ts` CI gate (100% required / 0 forbidden / 0 violations; C# fixture dotnet-gated). Baseline: 75/75 across five fixtures; two external repos invariant-clean; the 357k-token `llm_readable` summary on a 2.6k-file repo recorded as Epic O/Q input.
+
+### Epics N–T — planned (v0.2 "Verified Static Context", ADR 0028 — in ratified order)
+- **Epic Q — Benchmark/performance gates:** init/provider/index/query durations, expanded nodes, SQLite query counts, memory estimate, output size; regression thresholds where stable.
+- **Epic O — Diff / PR mode:** `analyze_diff`, changed-path review, map comparison, new-duplicate/new-legacy detection, confidence-regression detection.
+- **Epic N — C++ semantic tier:** optional clangd/libclang provider (compile_commands.json/CMake detection, header/source + namespace resolution, include graph, macro-aware confidence); fallback clang → tree-sitter → heuristic.
+- **Epic R — Productized setup/onboarding:** npx story, MCP config examples, init wizard, `doctor`/provider-availability report, `explain-tools`, sample walkthrough.
+- **Epic S — CAS export integration:** export workflows (product context, decision records, findings summary, drift report, preflight context) into CAS-friendly paths.
+- **Epic T — Canonical path registry:** user-declared intended architecture (canonical/deprecated workflows, owned modules, forbidden dependencies) upgrading findings from generic to intent-aware.
+- **Epic P — Incremental refresh** (last; needs M/Q measurements): changed-file detection, affected symbols/edges/findings, partial rebuild, provider cache, section invalidation.
+- **Anti-goals until Q lands:** no new findings rules or provider claims without harness scores; no new visualizers before accuracy metrics; no runtime features (permanent); SQLite stays optional.
 
 ### Epic E — Verification — ✅ COMPLETE
 - **E1.** ✅ The original 25 `it.todo` tests (core + analysis + call-stack/visualization, see §3) are long since filled and grown far past — the suite has 0 `it.todo` (current count in [`STATUS.md`](./STATUS.md)).
