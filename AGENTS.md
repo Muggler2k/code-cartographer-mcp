@@ -8,7 +8,7 @@ The CAS repository at `../debug_mcp_context_manager` owns product context, requi
 
 ## Current Implementation Status
 
-**The full product is implemented and tested (Epics A–J), incl. static path-finding + a SQLite graph index (ADR 0023) unified behind a single `GraphSource` traversal substrate (ADR 0024) and the internal-seams reorganization (ADR 0025).** `src/schema.ts`, `src/contextMap.ts`, `src/analysisContext.ts`, `src/analysis.ts`, `src/callGraph.ts`, `src/visualize.ts`, `src/output.ts`, `src/scope.ts`, `src/files.ts`, `src/providers/`, `src/pathfinding.ts`, `src/graphIndex.ts`, `src/pathQueries.ts`, and `src/tools.ts` are all implemented; `test/` holds 253 passing tests (0 `it.todo`). `src/index.ts` is two thin adapters over the `tools.ts` spec table, registering all **19 MCP tools** (3 core map + 10 analysis + 3 call-stack/visualization + 2 path queries (`find_callers`/`find_path`), plus the scope `preview`) and the CLI, all working end-to-end. Build and typecheck pass. Design is recorded in CAS Decisions 0001–0025 — read [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md) before planning. The Operating Rules below are **product invariants** the implementation honors and must continue to.
+**The full product is implemented and tested (Epics A–K), incl. static path-finding + a SQLite graph index (ADR 0023) unified behind a single `GraphSource` traversal substrate (ADR 0024), the internal-seams reorganization (ADR 0025), and findings derivation v2 + re-export visibility (ADR 0026).** `src/schema.ts`, `src/contextMap.ts`, `src/analysisContext.ts`, `src/analysis.ts`, `src/callGraph.ts`, `src/visualize.ts`, `src/output.ts`, `src/scope.ts`, `src/files.ts`, `src/providers/`, `src/pathfinding.ts`, `src/graphIndex.ts`, `src/pathQueries.ts`, and `src/tools.ts` are all implemented; `test/` holds 268 passing tests (0 `it.todo`). `src/index.ts` is two thin adapters over the `tools.ts` spec table, registering all **19 MCP tools** (3 core map + 10 analysis + 3 call-stack/visualization + 2 path queries (`find_callers`/`find_path`), plus the scope `preview`) and the CLI, all working end-to-end. Build and typecheck pass. Design is recorded in CAS Decisions 0001–0026 — read [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), and [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md) before planning. The Operating Rules below are **product invariants** the implementation honors and must continue to.
 
 ## Required Context Before Planning
 
@@ -50,7 +50,7 @@ npm run build
 npm test
 ```
 
-`npm run build` / `npm run typecheck` pass; `npm test` runs the full Vitest suite (253 tests).
+`npm run build` / `npm run typecheck` pass; `npm test` runs the full Vitest suite (268 tests).
 
 Enable hooks once:
 

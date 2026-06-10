@@ -1,6 +1,6 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); see per-epic notes below_
+_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); see per-epic notes below_
 
 The full tool/type **surface** is implemented (19 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
@@ -116,7 +116,13 @@ A post-Epic-I architecture review surfaced four internal-friction findings; ADR 
 - **J1.** ✅ `src/schema.ts` — the behavior-free shared type vocabulary, split from the map engine (`contextMap.ts` keeps build/persist/staleness/derivation behind init/status/read). Pure file move; schema v1 (ADR 0008) and mapHash/staleness (ADR 0011) unchanged.
 - **J2.** ✅ `src/analysisContext.ts` — one `withContext` envelope (load → init-guard → close, ADR 0024 lifecycle) for all 13 graph-query capabilities; `makeAnalysisContext` makes the `GraphSource` seam injectable (capabilities take `AnalysisTarget`); `reviewPreflight`/`visualizeArchitecture` compose sub-capabilities over ONE shared context; close-ownership pinned by tests (never close an injected context). → `CAP-07..16`, `CAP-23`
 - **J3.** ✅ `src/tools.ts` — declarative table of 19 tool specs; MCP registration and CLI dispatch become two adapters over it (`registerTools` / `findCliSpec`+`cliArgs`); usage derives from the table; the previously-uncovered `index.ts` surface gains table + CLI-mapping + execute round-trip tests.
-- **J4.** ✅ `test/helpers/fixtures.ts` — shared `tempRepos` factory + `testContextMap`/`testFileEntry`/`testNode`/`testEdge` builders; the five files that hand-rolled mkdtemp fixtures and the two hand-written map literals now build on it. 253 tests / 16 files.
+- **J4.** ✅ `test/helpers/fixtures.ts` — shared `tempRepos` factory + `testContextMap`/`testFileEntry`/`testNode`/`testEdge` builders; the five files that hand-rolled mkdtemp fixtures and the two hand-written map literals now build on it. (Suite at Epic J close: 253 tests / 16 files.)
+
+### Epic K — Findings derivation v2 + re-export visibility (ADR 0026) — ✅ DONE (K1–K2)
+An architecture/product exploration chose seven richer findings rules + re-export visibility; ratified as ADR 0026 (amends 0017 — the "scattered ownership" claim becomes true). All findings ≤ `candidate`, capped, uncertainty-carrying; dead code never asserted.
+- **K1.** ✅ Seven map-only rules in `deriveFindings`: cyclic dependency clusters (Tarjan SCC over resolved edges, ≥ 2 files), low-static-visibility hotspots (weak-edge ratio — grades the map's own evidence), source→test dependency violations, scattered ownership (≥ 3 modules), statically untested modules (forward closure from test declarations; skipped without test decls), god-functions (fan-out ≥ 20), entry-point-orphan modules (closure from detected entry points; source modules only; never "dead"/"unused"). → `CAP-08`, `CAP-09`, `CAP-16`
+- **K2.** ✅ Re-export visibility: optional `OwnershipSignal.reExport` (additive, schema stays v1, `mapHash` untouched); the TS provider emits an alias signal — no call-graph node — for every exported name with no local declaration (`export {x} from` / `export * from` / import-then-export; `default` skipped); findings exclude aliases from duplicate/scatter grouping. → `CAP-13`
+- Deferred (recorded in ADR 0026): signature-aware duplicate detection.
 
 ### Epic E — Verification
 - **E1.** Fill the 25 `it.todo` tests (core + analysis + call-stack/visualization, see §3) and any added coverage.

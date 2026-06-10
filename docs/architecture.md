@@ -4,9 +4,9 @@ _Last updated: 2026-06-10 · Status: **design ratified and implemented** (decisi
 
 This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
-all of which are now **resolved and implemented** (Epics A–J; ADRs 0008–0025,
-incl. the static path-finding + derived SQLite graph index of ADR 0023 and the
-internal-seams reorganization of ADR 0025).
+all of which are now **resolved and implemented** (Epics A–K; ADRs 0008–0026,
+incl. the static path-finding + derived SQLite graph index of ADR 0023, the
+internal-seams reorganization of ADR 0025, and findings derivation v2 of ADR 0026).
 The decision table in §5 carries the resolution for each open question; D5
 (dependency pins) is the only item with a residual release-prep tail.
 
@@ -67,7 +67,7 @@ Components inside the engine (all implemented):
 | C5 | **Entry points** | Heuristic entry detection w/ confidence + reason | `CAP-02` |
 | C6 | **Module groups** | Cluster source/test files into modules | `CAP-02`, `CAP-16` |
 | C7 | **Ownership signals** | Exported declarations per file (which file "owns" an API) — provider-extracted (C11) | `CAP-13`, `CAP-08` |
-| C8 | **Findings** | duplicate-path, legacy-path, risk candidates; `codebaseOnlyBoundary`; uncertainty | `CAP-08`, `CAP-09`, `POL-06`, `POL-07` |
+| C8 | **Findings** | duplicate-path, legacy-path, canonical + risk candidates (ADR 0017) and derivation v2 (ADR 0026): cyclic clusters, visibility hotspots, source→test violations, scattered ownership, untested modules, fan-out hotspots, entry-point orphans — all ≤ `candidate`, capped, uncertainty-carrying; re-exports treated as aliases | `CAP-08`, `CAP-09`, `CAP-16`, `POL-06`, `POL-07` |
 | C9 | **Persistence** | Write/read `.code-cartographer-mcp/context-map.json` | `CAP-01`, `CAP-17` |
 | C10 | **Formatters** | `StaticContextMap` → markdown / JSON, kept in sync with the schema | `CAP-03`, `CAP-18`, `CAP-19`, `CAP-20` |
 | C11 | **Language providers** | Pluggable per-language extraction of ownership signals, entry-point hints, and static call edges; tiered confidence ceiling (ADR 0012/0013). Three tiers: TS/JS compiler-API (`confirmed`), tree-sitter for 8 languages (`likely`, cross-file for Go/Python/Rust — ADR 0021/0022), heuristic floor (`candidate`). Feeds C5/C7/C8 and the call graph. | `CAP-13`, `CAP-08`, `CAP-23` |
