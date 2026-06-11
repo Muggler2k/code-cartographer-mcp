@@ -1,9 +1,11 @@
-// C# provider (CAS ADR 0027): a `confirmed`-ceiling tier backed by a Roslyn sidecar
-// (tools/roslyn-analyzer), mirroring the TS provider's compiler-API semantics — one
-// ad-hoc compilation over the batch, semantic-model-resolved cross-file edges, virtual/
-// interface dispatch capped at `likely`. STRICTLY OPTIONAL: `matches()` only claims .cs
-// files when the `dotnet` CLI is available, so without a .NET SDK the registry falls
-// through to the tree-sitter tier unchanged. Any sidecar failure degrades to an empty
+// C#/VB provider (CAS ADRs 0027/0033): a `confirmed`-ceiling tier backed by a Roslyn
+// sidecar (tools/roslyn-analyzer), mirroring the TS provider's compiler-API semantics —
+// one ad-hoc compilation PER LANGUAGE over the batch (Roslyn cannot mix C# and VB trees,
+// so cross-language calls stay `unresolved#name`, disclosed), semantic-model-resolved
+// cross-file edges, virtual/interface dispatch capped at `likely`. STRICTLY OPTIONAL:
+// `matches()` only claims .cs/.vb files when the `dotnet` CLI is available, so without a
+// .NET SDK the registry falls through (C# → tree-sitter; VB → the heuristic floor — no
+// maintained tree-sitter VB grammar exists). Any sidecar failure degrades to an empty
 // extraction (the engine treats provider failure as "no extraction", ADR 0017).
 // CODEBASE-ONLY: the sidecar parses source TEXTS we pass it; it never builds the target
 // into a runnable form, executes target code, or loads target assemblies.
@@ -140,7 +142,10 @@ export const csharpProvider: LanguageProvider = {
   id: "csharp-roslyn",
   maxConfidence: "confirmed",
   matches(file): boolean {
-    return file.path.endsWith(".cs") && dotnetAvailable();
+    // .vb joins the same sidecar (ADR 0033) — separate compilations inside, so a
+    // mixed batch is fine; without the SDK, C# falls to tree-sitter and VB to the
+    // heuristic floor (no maintained tree-sitter VB grammar).
+    return (file.path.endsWith(".cs") || file.path.endsWith(".vb")) && dotnetAvailable();
   },
   async analyze(input: ProviderInput): Promise<ProviderExtraction> {
     const dll = await ensureAnalyzerBuilt();
@@ -191,7 +196,9 @@ export const csharpProvider: LanguageProvider = {
       path: p,
       kind: "source_entry",
       confidence: "likely",
-      reason: "C# entry point (static Main or top-level statements)"
+      reason: p.endsWith(".vb")
+        ? "VB entry point (shared Sub Main)"
+        : "C# entry point (static Main or top-level statements)"
     }));
 
     return {

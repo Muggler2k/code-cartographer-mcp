@@ -11,7 +11,7 @@ import { loadGolden, runSubject, type SubjectResult } from "./harness.js";
 import { dotnetAvailable } from "../src/providers/csharp.js";
 
 const EVAL_DIR = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES = ["ts-small", "python-small", "csharp-small", "mixed", "edge-cases"];
+const FIXTURES = ["ts-small", "python-small", "csharp-small", "vb-small", "mixed", "edge-cases"];
 
 async function main(): Promise<void> {
   const results: SubjectResult[] = [];
@@ -22,8 +22,8 @@ async function main(): Promise<void> {
   };
 
   for (const name of FIXTURES) {
-    if (name === "csharp-small" && !dotnetAvailable()) {
-      skipped.push(`${name} (no dotnet CLI — the C# golden encodes the Roslyn tier)`);
+    if ((name === "csharp-small" || name === "vb-small") && !dotnetAvailable()) {
+      skipped.push(`${name} (no dotnet CLI — the golden encodes the Roslyn tier, ADR 0027/0033)`);
       continue;
     }
     const golden = await loadGolden(path.join(EVAL_DIR, "goldens", `${name}.json`));

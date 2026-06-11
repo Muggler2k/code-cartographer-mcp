@@ -56,3 +56,9 @@ describe.runIf(dotnetAvailable())("capability evaluation gate — C# Roslyn tier
     expectClean(await score("csharp-small"));
   }, 300_000);
 });
+
+describe.runIf(dotnetAvailable())("capability evaluation gate — VB Roslyn tier (ADR 0033)", () => {
+  it("vb-small: VB declarations, dispatch grading, data-member exclusion, NameOf silence, entry hint, reachability", async () => {
+    expectClean(await score("vb-small"));
+  }, 300_000);
+});

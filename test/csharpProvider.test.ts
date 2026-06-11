@@ -230,3 +230,107 @@ describe.runIf(available)("csharpProvider.analyze (ADR 0027 — Roslyn semantics
     expect(ex.callEdges).toEqual([]);
   }, 120_000);
 });
+
+describe.runIf(available)("csharpProvider.analyze — Visual Basic tier (ADR 0033)", () => {
+  it("claims .vb files only when dotnet is available", () => {
+    expect(csharpProvider.matches(file("App.vb"))).toBe(true);
+    expect(csharpProvider.matches(file("App.bas"))).toBe(false);
+  });
+
+  it("emits VB type + method declarations with export grading, resolves cross-file calls, and grades interface dispatch as method/likely", async () => {
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "IWorker.vb": "Public Interface IWorker\n    Sub Work()\nEnd Interface\n",
+        "Impl.vb":
+          "Public Class Impl\n    Implements IWorker\n\n    Public Sub Work() Implements IWorker.Work\n        Helper()\n    End Sub\n\n    Private Sub Helper()\n    End Sub\nEnd Class\n",
+        "User.vb":
+          "Public Class User\n    Public Sub Use(w As IWorker)\n        w.Work()\n        Dim i As New Impl()\n    End Sub\nEnd Class\n"
+      })
+    );
+    const byId = new Map(ex.declarations.map((d) => [d.id, d]));
+    expect(byId.get("Impl.vb#Impl")?.kind).toBe("class");
+    expect(byId.get("Impl.vb#Impl")?.confidence).toBe("confirmed");
+    expect(byId.get("IWorker.vb#IWorker")?.kind).toBe("interface");
+    const own = new Map(ex.ownershipSignals.map((s) => [s.symbol, s]));
+    expect(own.get("Impl.Work")?.exported).toBe(true);
+    expect(own.get("Impl.Helper")?.exported).toBe(false);
+    const dispatch = ex.callEdges.find((e) => e.to === "IWorker.vb#IWorker.Work");
+    expect(dispatch?.from).toBe("User.vb#User.Use");
+    expect(dispatch?.callKind).toBe("method");
+    expect(dispatch?.confidence).toBe("likely"); // virtually dispatched — likely is the static ceiling (ADR 0016/0018)
+    const creation = ex.callEdges.find((e) => e.to === "Impl.vb#Impl");
+    expect(creation?.callKind).toBe("direct");
+    expect(creation?.confidence).toBe("confirmed");
+    const internal = ex.callEdges.find((e) => e.to === "Impl.vb#Impl.Helper");
+    expect(internal?.callKind).toBe("direct");
+  }, 120_000);
+
+  it("emits NO edge for array indexing, default-property access, or NameOf — data and operators are not calls", async () => {
+    // VB invocation SYNTAX covers indexing; only real method bindings may become edges
+    // (ADR 0032/0033 data-member rule). NameOf is a distinct VB node — silence is pinned.
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "Ops.vb":
+          "Public Class Ops\n" +
+          "    Private items As New System.Collections.Generic.List(Of Integer)\n" +
+          "    Public Function Read(arr() As Integer) As Integer\n" +
+          "        Dim label = NameOf(Read)\n" +
+          "        Dim x = items(0)\n" +
+          "        Return arr(1)\n" +
+          "    End Function\n" +
+          "    Public Sub Run()\n" +
+          "        Missing()\n" +
+          "    End Sub\n" +
+          "End Class\n"
+      })
+    );
+    expect(ex.callEdges.some((e) => e.to === "unresolved#NameOf")).toBe(false);
+    expect(ex.callEdges.some((e) => e.to.startsWith("unresolved#arr"))).toBe(false);
+    expect(ex.callEdges.some((e) => e.to.startsWith("unresolved#items"))).toBe(false);
+    // A genuinely failed call binding still surfaces as unresolved — uncertainty is never hidden.
+    const missing = ex.callEdges.find((e) => e.to === "unresolved#Missing");
+    expect(missing?.callKind).toBe("unresolved");
+    expect(missing?.confidence).toBe("unresolved");
+  }, 120_000);
+
+  it("emits VB property/field ownership signals — signals only, never call-graph nodes (ADR 0032/0033)", async () => {
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "Customer.vb":
+          "Public Class Customer\n" +
+          "    Public Property Name As String = \"\"\n" +
+          "    Public Limit As Integer\n" +
+          "    Private secret As Integer\n" +
+          "End Class\n"
+      })
+    );
+    const own = new Map(ex.ownershipSignals.map((s) => [s.symbol, s]));
+    expect(own.get("Customer.Name")?.kind).toBe("property");
+    expect(own.get("Customer.Name")?.exported).toBe(true);
+    expect(own.get("Customer.Limit")?.kind).toBe("field");
+    expect(own.get("Customer.secret")?.exported).toBe(false);
+    expect(ex.declarations.some((d) => d.id === "Customer.vb#Customer.Name")).toBe(false);
+    expect(ex.declarations.some((d) => d.id === "Customer.vb#Customer.Limit")).toBe(false);
+  }, 120_000);
+
+  it("emits a likely source_entry hint for Sub Main and handles a mixed C#+VB batch — cross-language calls stay unresolved", async () => {
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "App.vb": "Public Module App\n    Public Sub Main()\n        Dim s = New Svc().Run()\n    End Sub\nEnd Module\n",
+        "Svc.cs": "public class Svc { public int Run() { return 1; } }\n"
+      })
+    );
+    expect(ex.entryPointHints.map((h) => h.path)).toEqual(["App.vb"]);
+    expect(ex.entryPointHints[0]?.kind).toBe("source_entry");
+    expect(ex.entryPointHints[0]?.confidence).toBe("likely");
+    // Both languages extract in one batch (the registry hands the sidecar one group)…
+    expect(ex.declarations.some((d) => d.id === "Svc.cs#Svc.Run")).toBe(true);
+    expect(ex.declarations.some((d) => d.id === "App.vb#App.Main")).toBe(true);
+    // …but the compilations are separate: a VB→C# repo-internal call FAILS binding and
+    // stays unresolved#name — never graded resolved across the language boundary (ADR 0033).
+    expect(ex.callEdges.some((e) => e.to === "Svc.cs#Svc.Run" || e.to === "Svc.cs#Svc")).toBe(false);
+    const cross = ex.callEdges.filter((e) => e.from === "App.vb#App.Main");
+    expect(cross.length).toBeGreaterThan(0);
+    expect(cross.every((e) => e.confidence === "unresolved")).toBe(true);
+  }, 120_000);
+});

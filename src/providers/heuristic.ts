@@ -65,6 +65,19 @@ const JAVA_CS: LanguageSpec = {
   exported: (line) => /\bpublic\b/.test(line)
 };
 
+const VB: LanguageSpec = {
+  // The VB floor (ADR 0033): without a .NET SDK there is no tree-sitter middle tier
+  // for VB, so these case-insensitive patterns are the only coverage. Best-effort.
+  extensions: [".vb"],
+  declarations: [
+    { kind: "class", regex: /^\s*(?:Public\s+|Private\s+|Friend\s+|Partial\s+|NotInheritable\s+|MustInherit\s+)*(?:Class|Module|Structure)\s+([A-Za-z_]\w*)/i },
+    { kind: "interface", regex: /^\s*(?:Public\s+|Private\s+|Friend\s+)?Interface\s+([A-Za-z_]\w*)/i },
+    { kind: "enum", regex: /^\s*(?:Public\s+|Private\s+|Friend\s+)?Enum\s+([A-Za-z_]\w*)/i },
+    { kind: "function", regex: /^\s*(?:Public\s+|Private\s+|Protected\s+|Friend\s+|Shared\s+|Overrides\s+|Overridable\s+|MustOverride\s+|Async\s+|Iterator\s+)*(?:Function|Sub)\s+(?!New\b)([A-Za-z_]\w*)/i }
+  ],
+  exported: (line) => /\bPublic\b/i.test(line)
+};
+
 const RUBY: LanguageSpec = {
   extensions: [".rb"],
   declarations: [
@@ -97,7 +110,7 @@ const GENERIC: LanguageSpec = {
   exported: (line) => /^\s*(export|pub|public)\b/.test(line)
 };
 
-const SPECS: LanguageSpec[] = [PY, GO, RUST, JAVA_CS, RUBY, PHP];
+const SPECS: LanguageSpec[] = [PY, GO, RUST, JAVA_CS, VB, RUBY, PHP];
 
 /** Keywords that look like calls (`if (...)`) but are control flow, not invocations. */
 const CALL_KEYWORDS = new Set([

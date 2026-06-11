@@ -49,7 +49,7 @@ const GENERATED_NAMES = new Set([
 ]);
 const SOURCE_EXTS = new Set([
   ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
-  ".py", ".go", ".rs", ".java", ".cs", ".rb", ".php",
+  ".py", ".go", ".rs", ".java", ".cs", ".vb", ".rb", ".php",
   ".c", ".h", ".cpp", ".hpp", ".cc", ".kt", ".swift", ".scala", ".sh"
 ]);
 

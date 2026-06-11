@@ -93,7 +93,7 @@ describe("benchmark gates — tier-stable fixtures (ADR 0030)", () => {
 });
 
 describe.runIf(dotnetAvailable())("benchmark gates — Roslyn-tier fixtures (ADR 0027/0030)", () => {
-  for (const name of ["csharp-small", "mixed"]) {
+  for (const name of ["csharp-small", "vb-small", "mixed"]) {
     it(`${name}: structural metrics match the Roslyn-tier baseline`, async () => {
       const base = (await baselines())[name];
       expectGates(name, base, await runAgainstBaseline(name, base));

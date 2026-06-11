@@ -155,6 +155,7 @@ const EXTENSION_LANGUAGES: Record<string, string> = {
   ".rs": "rust",
   ".java": "java",
   ".cs": "csharp",
+  ".vb": "vb",
   ".rb": "ruby",
   ".php": "php"
 };
@@ -198,6 +199,9 @@ export async function detectLanguages(repositoryRoot: string): Promise<string[]>
         if (entry.name.endsWith(".csproj")) {
           found.add("csharp");
         }
+        if (entry.name.endsWith(".vbproj")) {
+          found.add("vb");
+        }
         const extLang = EXTENSION_LANGUAGES[path.extname(entry.name).toLowerCase()];
         if (extLang) {
           found.add(extLang);
@@ -219,6 +223,7 @@ const LANGUAGE_EXCLUDE_DIRS: Record<string, string[]> = {
   rust: ["target"],
   java: [".gradle", "build", "target"],
   csharp: ["bin", "obj"],
+  vb: ["bin", "obj"],
   ruby: [".bundle", "vendor"],
   php: ["vendor"]
 };

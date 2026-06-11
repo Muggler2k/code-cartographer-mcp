@@ -1,8 +1,10 @@
-// Roslyn sidecar for the C# provider (CAS ADR 0027). CODEBASE-ONLY: parses and
-// semantically analyzes the SOURCE TEXTS handed to it — one ad-hoc compilation over
-// the batch's syntax trees, no MSBuild evaluation, no execution of target code, no
-// assembly loading from the target. Reads a request JSON file (argv[0]) carrying the
-// file texts; writes the extraction JSON to stdout.
+// Roslyn sidecar for the C#/VB provider (CAS ADRs 0027/0033). CODEBASE-ONLY: parses
+// and semantically analyzes the SOURCE TEXTS handed to it — one ad-hoc compilation per
+// language over the batch's syntax trees (C# here; VB in VbAnalyzer.cs — Roslyn cannot
+// mix the two tree kinds, so cross-language calls stay `unresolved#name`, disclosed),
+// no MSBuild evaluation, no execution of target code, no assembly loading from the
+// target. Reads a request JSON file (argv[0]) carrying the file texts; writes the
+// extraction JSON to stdout.
 //
 // Output semantics mirror the TS provider (ADR 0018):
 //   - declarations: namespace types + their methods; ids `path#Type` / `path#Type.Method`.
@@ -45,9 +47,14 @@ if (request?.Files is null)
     return 2;
 }
 
+// Split the batch by language (ADR 0033): .vb files get their own VisualBasicCompilation
+// in VbAnalyzer; everything else stays on the C# path exactly as before.
+var vbFiles = request.Files.Where(f => f.Path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)).ToList();
+var csFiles = request.Files.Where(f => !f.Path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)).ToList();
+
 var parseOptions = new CSharpParseOptions(LanguageVersion.Latest);
 var trees = new List<SyntaxTree>();
-foreach (var file in request.Files)
+foreach (var file in csFiles)
 {
     // tree.FilePath carries the repo-relative path so every emitted id maps straight back.
     trees.Add(CSharpSyntaxTree.ParseText(file.Text ?? "", parseOptions, path: file.Path));
@@ -280,6 +287,10 @@ foreach (var tree in trees)
         }
     }
 }
+
+// Visual Basic batch (ADR 0033): its own compilation over the same TPA references,
+// appending into the shared declaration/edge/entry collections (ids are path-prefixed).
+VbAnalyzer.Analyze(vbFiles, references, declarations, edges, entryPaths, seenIds, seenEdges);
 
 var response = new Response(declarations, edges, entryPaths.OrderBy(p => p, StringComparer.Ordinal).ToList());
 Console.WriteLine(JsonSerializer.Serialize(response, jsonOptions));

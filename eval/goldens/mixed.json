@@ -1,6 +1,6 @@
 {
   "symbols": {
-    "required": ["a.ts#fromTypescript", "b.py#from_python", "C.cs#FromCSharp"],
+    "required": ["a.ts#fromTypescript", "b.py#from_python", "C.cs#FromCSharp", "d.vb#FromVb"],
     "forbidden": []
   },
   "exported": {

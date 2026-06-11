@@ -1,0 +1,48 @@
+{
+  "symbols": {
+    "required": [
+      "Program.vb#App",
+      "Program.vb#App.Main",
+      "Greeter.vb#IGreeter",
+      "Greeter.vb#IGreeter.Greet",
+      "Greeter.vb#Greeter",
+      "Greeter.vb#Greeter.Greet",
+      "Greeter.vb#Greeter.Format",
+      "Models.vb#Item",
+      "Models.vb#Item.Score",
+      "Report.vb#Report",
+      "Report.vb#Report.FirstScore"
+    ],
+    "forbidden": ["Models.vb#Item.Tag"]
+  },
+  "exported": {
+    "Program.vb#App.Main": true,
+    "Greeter.vb#Greeter.Greet": true,
+    "Greeter.vb#Greeter.Format": false,
+    "Models.vb#Item.Tag": true,
+    "Report.vb#Report.FirstScore": true
+  },
+  "edges": {
+    "required": [
+      { "from": "Program.vb#App.Main", "to": "Greeter.vb#Greeter", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "Program.vb#App.Main", "to": "Greeter.vb#IGreeter.Greet", "callKind": "method", "confidence": "likely" },
+      { "from": "Greeter.vb#Greeter.Greet", "to": "Greeter.vb#Greeter.Format", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "Report.vb#Report.FirstScore", "to": "Models.vb#Item.Score", "callKind": "direct", "confidence": "confirmed" }
+    ],
+    "forbidden": [
+      { "from": "Program.vb#App.Main", "to": "Greeter.vb#Greeter.Format" },
+      { "from": "Report.vb#Report.FirstScore", "to": "unresolved#NameOf" }
+    ]
+  },
+  "entryPoints": {
+    "required": [{ "path": "Program.vb", "kind": "source_entry" }]
+  },
+  "duplicates": { "requiredIds": [], "forbiddenIds": ["dup:name:Greet"] },
+  "reachability": [
+    {
+      "target": "App.Main",
+      "mustReach": ["Greeter.vb#Greeter", "Greeter.vb#IGreeter.Greet"],
+      "mustNotReach": ["Greeter.vb#Greeter.Format"]
+    }
+  ]
+}

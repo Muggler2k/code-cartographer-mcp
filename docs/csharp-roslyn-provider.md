@@ -1,4 +1,4 @@
-# C# Roslyn Provider — Implementation Note (ADR 0027, Epic L; references + data members: ADR 0032)
+# C#/VB Roslyn Provider — Implementation Note (ADR 0027, Epic L; references + data members: ADR 0032; Visual Basic: ADR 0033)
 
 The C# tier (`src/providers/csharp.ts` + the `tools/roslyn-analyzer` sidecar) upgrades C#
 from the tree-sitter tier (`likely`, no cross-file resolution) to a compiler-API tier
@@ -85,6 +85,30 @@ The datum ADR 0032 deferred Tier 2 on, measured before/after on an external ASP.
   + unit-tested both ways. Re-measured on the external repo: unresolved C#-origin edges
   2780 → 2472 (69.2% → 66.6%), `unresolved#nameof` count 0.
 
+## Visual Basic (ADR 0033)
+
+The same provider claims `.vb` behind the same `dotnet` probe; the sidecar splits the
+batch by extension and builds a **separate `VisualBasicCompilation`**
+(`tools/roslyn-analyzer/VbAnalyzer.cs`) over the same TPA references — Roslyn cannot mix
+C# and VB trees in one compilation. Extraction semantics are deliberately parallel to
+the C# pass: types (Class/Module/Structure/Interface/Enum) + methods as nodes,
+clean-binding-only resolved edges (`direct`→`confirmed`, dispatch→`method`/`likely`),
+`Sub New`/accessor attribution to the TYPE node, `Sub Main` (shared or Module member) as
+the `source_entry` hint, and properties/fields as ownership signals only.
+
+VB-specific binding discipline: VB invocation **syntax** also covers array indexing and
+default-property access — an invocation bound to a non-method symbol, or unbound with a
+value-symbol expression (local/parameter/field/property), is **data access and emits no
+edge**. `NameOf(...)` is a distinct VB syntax node (unlike C#'s `nameof`, which needed a
+filter) and emits nothing by construction.
+
+**Cross-language calls degrade, disclosed:** a VB→C# (or C#→VB) repo-internal call
+crosses compilation boundaries, fails binding, and maps to `unresolved#name` exactly
+like an external target. Cross-compilation references are deferred until measured need
+(ADR 0033). Without a .NET SDK there is **no tree-sitter middle tier for VB** (no
+maintained grammar): VB degrades to the heuristic floor's case-insensitive VB patterns
+(`candidate`).
+
 ## Known limits (disclosed; deferred in ADRs 0027/0032)
 
 - Calls inside top-level statements and field initializers emit **no edges** (the file still
@@ -98,6 +122,8 @@ The datum ADR 0032 deferred Tier 2 on, measured before/after on an external ASP.
   `unresolved` by policy.
 - Results vary by machine capability (SDK present or not) — the same disclosed property as
   the optional SQLite graph index (ADR 0024).
+- Cross-language VB↔C# repo-internal calls fail binding (separate compilations) and stay
+  `unresolved#name`; cross-compilation references are deferred (ADR 0033).
 
 ## Testing
 

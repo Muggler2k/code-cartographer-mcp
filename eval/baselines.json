@@ -40,8 +40,21 @@
       },
       "softCeilingsMs": { "init": 120000, "indexBuild": 5000 }
     },
+    "vb-small": {
+      "structural": { "files": 4, "nodes": 11, "edges": 5, "summaryChars": 4057, "summaryCharsTolerancePct": 20 },
+      "pathQuery": {
+        "from": "Program.vb#App.Main",
+        "to": "Greeter.vb#Greeter",
+        "hops": 1,
+        "expandedNodeCount": 1,
+        "visitedNodeCount": 3,
+        "neighborQueryCount": 1,
+        "sqliteQueryCount": 1
+      },
+      "softCeilingsMs": { "init": 120000, "indexBuild": 5000 }
+    },
     "mixed": {
-      "structural": { "files": 5, "nodes": 4, "edges": 0, "summaryChars": 2165, "summaryCharsTolerancePct": 20 },
+      "structural": { "files": 6, "nodes": 6, "edges": 0, "summaryChars": 2627, "summaryCharsTolerancePct": 20 },
       "softCeilingsMs": { "init": 120000, "indexBuild": 5000 }
     },
     "edge-cases": {

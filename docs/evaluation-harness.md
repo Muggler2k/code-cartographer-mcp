@@ -8,7 +8,7 @@ features to unverified claims (ADR 0028).
 ## Usage
 
 ```powershell
-npm run eval                       # scorecard for the five checked-in fixtures
+npm run eval                       # scorecard for the six checked-in fixtures
 $env:CCM_EVAL_EXTERNAL="D:\repos\a;D:\repos\b"; npm run eval   # + external real repos
 npx vitest run test/evalHarness.test.ts                         # the CI gate
 ```
@@ -42,7 +42,7 @@ risk/duplicate findings ≤ `candidate`, risk areas carry uncertainty · legacy 
 
 ## Baseline (Epic M close, this machine)
 
-All five fixtures **PASS — 82/82 required, 0 forbidden, 0 invariant violations** (75 → 82 with the ADR 0032 csharp-small constructs: the BCL-bound internal edge + data-member signal/forbidden-node pins). External
+All six fixtures **PASS — 105/105 required, 0 forbidden, 0 invariant violations** (75 → 82 with the ADR 0032 csharp-small constructs: the BCL-bound internal edge + data-member signal/forbidden-node pins; 82 → 105 with ADR 0033: the `vb-small` fixture — full VB-tier parity with csharp-small — plus the mixed fixture's `d.vb` polyglot pin). External
 subjects (invariant-clean): `Calculator-master` (5 files incl. a binary, ~0.8 s init) and a
 2,661-file ASP.NET 9 repo (59 k edges, ~17–22 s init, **~357 k-token** `llm_readable`
 summary — recorded as direct input to Epic Q gates and Epic O's changed-files mode).
