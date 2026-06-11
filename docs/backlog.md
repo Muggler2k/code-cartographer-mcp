@@ -1,13 +1,13 @@
 # Implementation Backlog & Requirement Traceability
 
-_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); **Epic L done** (L1–L2) — optional C# Roslyn provider tier (ADR 0027); **Epic M done** (M1–M2) — capability evaluation harness (ADR 0029); **Epic Q done** (Q1–Q2) — benchmark/performance gates (ADR 0030); **Epics O/N/R/S/T/P planned** per the v0.2 roadmap (ADR 0028); see per-epic notes below_
+_Last updated: 2026-06-10 · Status: **Epics A–G implemented** (✅ complete) + **Epic H** path-finding & SQLite graph index (ADR 0023); **Epic I done** (I1–I4) — graph-traversal unification (HF-1, ADR 0024) + `find_path`/`find_callers` tools; **Epic J done** (J1–J4) — internal-seams deepening (ADR 0025); **Epic K done** (K1–K2) — findings derivation v2 + re-export visibility (ADR 0026); **Epic L done** (L1–L2) — optional C# Roslyn provider tier (ADR 0027); **Epic M done** (M1–M2) — capability evaluation harness (ADR 0029); **Epic Q done** (Q1–Q2) — benchmark/performance gates (ADR 0030); **Epic O done** (O1–O2) — diff/PR mode `analyze_diff` (ADR 0031); **Epics N/R/S/T/P planned** per the v0.2 roadmap (ADR 0028); see per-epic notes below_
 
-The full tool/type **surface** is implemented (19 tools + the complete type
+The full tool/type **surface** is implemented (20 tools + the complete type
 vocabulary — see [`STATUS.md`](./STATUS.md)); this backlog records the ordered,
 dependency-aware work behind that contract and a local index of the CAS
 requirements each task serves. CAS (`../debug_mcp_context_manager/context/`) remains the source of
 truth; this file mirrors the requirement IDs locally so a session can plan
-without leaving the repo. Component IDs (`C1`–`C15`) are defined in
+without leaving the repo. Component IDs (`C1`–`C16`) are defined in
 [`architecture.md`](./architecture.md).
 
 > Sequencing rule: do not start an epic until its design decisions
@@ -140,8 +140,12 @@ Deterministic-first gating: a red gate always means a real product change.
 - **Q1.** ✅ Instrumentation: `InitResult.timings` (per-provider `{id, files, ms}` + total — additive, never persisted, `mapHash` untouched, verified); the eval harness bench section (explicit SQLite `GraphIndex` open + build timing, fixed path query with `QueryMetrics`, `sqliteQueryCount`, `sccBuildCount`, heap delta record-only). → protects ADR 0023/0024
 - **Q2.** ✅ `eval/baselines.json` (structural baselines from a verified-good run; update-with-reasoning, never auto-regenerated) + `test/benchGates.test.ts`: HARD gates on file/node/edge counts, fixed-query expansion/neighbor/SQLite counts, SCC-built-once, summary size ±20%; SOFT sanity ceilings on wall-clock; Roslyn-tier fixtures dotnet-gated. `npm run eval` prints idxMs + pq columns.
 
-### Epics O/N/R/S/T/P — planned (v0.2 "Verified Static Context", ADR 0028 — in ratified order)
-- **Epic O — Diff / PR mode:** `analyze_diff`, changed-path review, map comparison, new-duplicate/new-legacy detection, confidence-regression detection.
+### Epic O — Diff / PR mode (ADR 0031) — ✅ DONE (O1–O2)
+The roadmap's six capability names (`analyze_diff`, `review_changed_paths`, `compare_maps`, `detect_new_duplicate_paths`, `detect_new_legacy_reachability`, `detect_confidence_regression`) share one primitive — a delta between two static maps — so they shipped as six sections of ONE tool, `analyze_diff` (CLI `diff`; tool count 19 → 20).
+- **O1.** ✅ `src/mapDiff.ts` — pure comparator (`compareMaps`) + verdict grading (`gradeDelta`) + the `analyzeDiff` capability. Default: persisted baseline vs a fresh in-memory rebuild of the current tree under the baseline's RECORDED scope (`recordedScopeToResolution` — the delta is never scope noise; nothing persisted, re-baselining stays an explicit `init_codebase`); optional `baselineMapPath` for CI (map@main vs map@head). Six capped sections (every list capped at 25 with true counts): files, graph node/edge deltas, new/resolved duplicates, legacy reachability transitions (revived = `still_reachable`), new/resolved risk areas, per-edge confidence regressions + weak-edge-ratio/uncertainty-register deltas. Verdict: `addedParallelPath`/`bypassedAbstraction`/`revivedLegacy`/`increasedUncertainty` + one `Recommendation`. Engine: `buildContextMapFromResolution` split out of `buildContextMap` (additive; persistence/`mapHash`/schema v1 untouched). → `CAP-11`, `CAP-12`
+- **O2.** ✅ `formatMapDiff` (20th formatter) + the `analyze_diff` tool spec; 15 new tests (7 pure-comparator incl. list caps, 5 integration incl. baseline-survives + CI shape + envelope) + formatter sweep + tool pins. Deferred with reasoning (ADR 0031): eval-harness diff goldens need *paired* fixture snapshots; semantic rename detection; three-way diffs.
+
+### Epics N/R/S/T/P — planned (v0.2 "Verified Static Context", ADR 0028 — in ratified order)
 - **Epic N — C++ semantic tier:** optional clangd/libclang provider (compile_commands.json/CMake detection, header/source + namespace resolution, include graph, macro-aware confidence); fallback clang → tree-sitter → heuristic.
 - **Epic R — Productized setup/onboarding:** npx story, MCP config examples, init wizard, `doctor`/provider-availability report, `explain-tools`, sample walkthrough.
 - **Epic S — CAS export integration:** export workflows (product context, decision records, findings summary, drift report, preflight context) into CAS-friendly paths.

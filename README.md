@@ -4,9 +4,9 @@ This is the product implementation repository for the Code Cartographer MCP.
 
 The Context Architecture System repository at `../debug_mcp_context_manager` remains the source of truth for product context, policies, prompts, workflows, and decisions. This repository owns source code, tests, build configuration, and implementation artifacts.
 
-## Status: implemented (Epics A–M, Q)
+## Status: implemented (Epics A–M, Q, O)
 
-**The full product is implemented and tested.** The MCP server registers all **19 tools** and the CLI dispatches them — both surfaces are adapters over one declarative tool spec table (ADR 0025); `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. A capability evaluation harness (`npm run eval`, ADR 0029) scores the analyzer against golden-annotated fixture repos — all five pass with zero confidence-invariant violations — and benchmark gates (ADR 0030) pin the structural performance metrics against checked-in baselines. 290 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0030. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md), and [`docs/csharp-roslyn-provider.md`](docs/csharp-roslyn-provider.md).
+**The full product is implemented and tested.** The MCP server registers all **20 tools** and the CLI dispatches them — both surfaces are adapters over one declarative tool spec table (ADR 0025); `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. A capability evaluation harness (`npm run eval`, ADR 0029) scores the analyzer against golden-annotated fixture repos — all five pass with zero confidence-invariant violations — and benchmark gates (ADR 0030) pin the structural performance metrics against checked-in baselines. Diff/PR mode (`analyze_diff`, ADR 0031) compares the persisted baseline map against the current tree (or an explicit snapshot) and returns a bounded six-section delta with an added-parallel-path / bypassed-abstraction / revived-legacy / increased-uncertainty verdict. 305 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0031. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md), and [`docs/csharp-roslyn-provider.md`](docs/csharp-roslyn-provider.md).
 
 ## Scope
 
@@ -24,6 +24,7 @@ Analysis tools (each requires an initialized map; all codebase-only):
 - `analyze_reachability`, `analyze_change_impact`, `investigate_failure` — return evidence-graded **hypotheses with explicit uncertainty**, never runtime-proven.
 - `find_duplicate_behavior`, `classify_legacy_paths`, `get_ownership`, `detect_architecture_drift` — duplicate / legacy / ownership / drift signals.
 - `review_preflight`, `review_change`, `analyze_test_paths` — pre-coding orientation, change review, and test-path tracing.
+- `analyze_diff` — the diff/PR review primitive (ADR 0031): a bounded delta between the persisted baseline map and the current tree (or an explicit `baselineMapPath` snapshot) — changed files, call-graph node/edge deltas, new/resolved duplicates, legacy reachability transitions, new/resolved risk areas, per-edge confidence regressions (static evidence weakening, never a runtime claim) — plus the verdict booleans and one recommendation.
 
 Call stack & visualization tools (codebase-only; visualizers return a diagram **spec** the client renders, not an image):
 
@@ -42,7 +43,7 @@ npm run build
 npm test
 ```
 
-`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (290 tests; the C# Roslyn provider suite runs only where the `dotnet` CLI exists — without it C# analysis falls back to the tree-sitter tier).
+`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (305 tests; the C# Roslyn provider suite runs only where the `dotnet` CLI exists — without it C# analysis falls back to the tree-sitter tier).
 
 ## Run Locally
 

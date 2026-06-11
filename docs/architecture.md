@@ -4,9 +4,9 @@ _Last updated: 2026-06-10 · Status: **design ratified and implemented** (decisi
 
 This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
-all of which are now **resolved and implemented** (Epics A–M + Q; ADRs 0008–0030,
+all of which are now **resolved and implemented** (Epics A–M + Q + O; ADRs 0008–0031,
 incl. the static path-finding + derived SQLite graph index of ADR 0023, the
-internal-seams reorganization of ADR 0025, findings derivation v2 of ADR 0026, and the optional C# Roslyn provider tier of ADR 0027).
+internal-seams reorganization of ADR 0025, findings derivation v2 of ADR 0026, the optional C# Roslyn provider tier of ADR 0027, and diff/PR mode of ADR 0031).
 The decision table in §5 carries the resolution for each open question; D5
 (dependency pins) is the only item with a residual release-prep tail.
 
@@ -39,7 +39,7 @@ The implemented layering:
 
 ```
 src/index.ts      entry point: 2 adapters over the tool table (0025) [done]
-src/tools.ts      declarative tool spec table: 19 specs (ADR 0025)   [done]
+src/tools.ts      declarative tool spec table: 20 specs (ADR 0025)   [done]
 src/schema.ts     shared type vocabulary, behavior-free (ADR 0025)   [done]
 src/scope.ts      scope/exclusion: 4 modes, walk, preview (ADR 0009) [done]
 src/files.ts      hashFile + categorizeFile (ADR 0010)               [done]
@@ -54,6 +54,7 @@ src/visualize.ts  visualization types + functions (CAP-24/25)        [done]
 src/pathfinding.ts GraphSource contract + path-finding (ADR 0023/24) [done]
 src/graphIndex.ts graph-index.sqlite GraphSource (ADR 0023/0024)     [done]
 src/pathQueries.ts find_callers / find_path over GraphSource (0024)  [done]
+src/mapDiff.ts    diff/PR mode: map delta + analyze_diff (ADR 0031)  [done]
 src/output.ts     formatting: results -> human / llm / dual          [done]
 eval/             capability eval harness + bench gates (0029/0030)  [done]
 ```
@@ -76,7 +77,8 @@ Components inside the engine (all implemented):
 | C12 | **Graph traversal substrate** | The one traversal substrate (ADR 0024): a `GraphSource` (neighbors + node lookups) with two implementations — `inMemoryGraphSource` (fallback, from the JSON map) and the SQLite `graph-index.sqlite` (`src/graphIndex.ts`, built-in `node:sqlite`). `loadGraphContext` picks the index for large graphs, else in-memory — **SQLite optional**. `analysis.ts`/`callGraph.ts` traverse it (no hand-rolled adjacency). Path-finding (`src/pathfinding.ts`: bidirectional-BFS fewest-hop, max-bottleneck best-confidence, k-best, Tarjan SCC) runs over it; emitted path confidence clamped to `likely`. Index is a rebuildable projection stamped with `mapHash`. Codebase-only — no runtime trace (ADR 0023/0024). | `CAP-23`, `CAP-07` |
 | C13 | **Path queries** | `find_callers` / `find_path` MCP tools (`src/pathQueries.ts`) surfacing the C12 path-finding algorithms over the shared `GraphSource` as codebase-only, `likely`-clamped, enveloped results (ADR 0024). | `CAP-23`, `CAP-07` |
 | C14 | **Analysis context** | The shared analysis-context seam (`src/analysisContext.ts`, ADR 0025): `withContext` owns the load → init-guard → close envelope (ADR 0024 lifecycle) and the shared uncertainty wordings for every graph-query capability; `makeAnalysisContext` is the injectable adapter (capabilities take `AnalysisTarget` = root string or caller-owned context — the callee never closes an injected context). Makes the C12 seam the test surface. | `CAP-07..16`, `CAP-23` |
-| C15 | **Tool surface** | The declarative tool spec table (`src/tools.ts`, ADR 0025): all 19 tools as `{ name, schema, cli, execute }` rows; the MCP registration and CLI dispatch in `src/index.ts` are two adapters over it, so the surfaces cannot drift and the table is testable without a transport. | `CAP-03`, `CAP-18` |
+| C15 | **Tool surface** | The declarative tool spec table (`src/tools.ts`, ADR 0025): all 20 tools as `{ name, schema, cli, execute }` rows; the MCP registration and CLI dispatch in `src/index.ts` are two adapters over it, so the surfaces cannot drift and the table is testable without a transport. | `CAP-03`, `CAP-18` |
+| C16 | **Map diff** | Diff/PR mode (`src/mapDiff.ts`, ADR 0031): a pure comparator (`compareMaps`) between two static maps + verdict grading (`gradeDelta`) behind the `analyze_diff` tool (CLI `diff`). Default compares the persisted baseline vs a fresh in-memory rebuild of the current tree under the baseline's RECORDED scope (never persisted — re-baselining stays an explicit `init_codebase`); optional `baselineMapPath` compares an explicit snapshot. Six capped sections (files, graph node/edge deltas, new/resolved duplicates, legacy reachability transitions, new/resolved risk areas, per-edge confidence regressions) + verdict booleans + one recommendation. Confidence regression = static evidence weakened, never a runtime claim. | `CAP-11`, `CAP-12`, `CAP-08` |
 
 A **static call graph** is now in scope as shared substrate (`CAP-23`, ADR 0007):
 `src/callGraph.ts` maps a confidence-graded static call stack from an entry point,
