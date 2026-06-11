@@ -132,6 +132,26 @@ describe.runIf(available)("csharpProvider.analyze (ADR 0027 — Roslyn semantics
     expect(ex.callEdges.some((e) => e.to === "Svc.cs#Svc.Helper")).toBe(false);
   }, 120_000);
 
+  it("emits no edge for the nameof operator; a method actually NAMED nameof keeps its edge", async () => {
+    // `nameof(...)` is the C# operator — it folds to a compile-time constant and binds
+    // no symbol; it is not a call, so emitting `unresolved#nameof` is noise, not evidence.
+    // A user method NAMED nameof binds a real symbol and must keep its edge:
+    // `nameof("x")` forces the method form — the operator only accepts a name
+    // expression (identifier or member access), never a string literal.
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "Op.cs": 'public class Op {\n  public string Label() { return nameof(Label); }\n}\n',
+        "Own.cs":
+          'public class Own {\n  public string Use() { return nameof("x"); }\n  private string nameof(string s) { return s; }\n}\n'
+      })
+    );
+    expect(ex.callEdges.some((e) => e.to === "unresolved#nameof")).toBe(false);
+    const userDefined = ex.callEdges.find((e) => e.to === "Own.cs#Own.nameof");
+    expect(userDefined?.from).toBe("Own.cs#Own.Use");
+    expect(userDefined?.callKind).toBe("direct");
+    expect(userDefined?.confidence).toBe("confirmed");
+  }, 120_000);
+
   it("attributes constructor and accessor calls to the containing TYPE node (S-1)", async () => {
     const ex = await csharpProvider.analyze(
       providerInput({

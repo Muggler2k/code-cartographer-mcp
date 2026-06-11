@@ -77,9 +77,13 @@ The datum ADR 0032 deferred Tier 2 on, measured before/after on an external ASP.
   would plausibly recover most of these (69.2% → ~62% best case); the remaining ~89% are
   genuinely external and stay `unresolved#name` by policy under any tier.
 - **Cost:** init wall-clock 17.3s → 17.8s (TPA loading ≈ +3%; soft ceilings unaffected).
-- **Noise observation:** `nameof` accounts for 308 unresolved edges (~11% of unresolved
-  C# noise); it is an operator, not a call — a sidecar filter would be a cheap precision
-  win, but needs a fixture construct + golden first (ADR 0028).
+- **Noise observation — FIXED same day:** `nameof` accounted for 308 unresolved edges
+  (~11% of unresolved C# noise); it is an operator, not a call. The sidecar now skips a
+  `nameof(...)` invocation that binds no symbol and folds to a compile-time constant
+  (a user method actually *named* `nameof` binds a symbol and keeps its edge; an
+  ambiguous one stays `unresolved#nameof`). Golden-pinned (csharp-small forbidden edge)
+  + unit-tested both ways. Re-measured on the external repo: unresolved C#-origin edges
+  2780 → 2472 (69.2% → 66.6%), `unresolved#nameof` count 0.
 
 ## Known limits (disclosed; deferred in ADRs 0027/0032)
 

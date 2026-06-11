@@ -13,7 +13,9 @@
       "Report.cs#Report",
       "Report.cs#Report.FirstScore"
     ],
-    "forbidden": ["Models.cs#Item.Tag"]
+    "forbidden": [
+      "Models.cs#Item.Tag"
+    ]
   },
   "exported": {
     "Program.cs#Program.Main": true,
@@ -24,22 +26,66 @@
   },
   "edges": {
     "required": [
-      { "from": "Program.cs#Program.Main", "to": "Greeter.cs#Greeter", "callKind": "direct", "confidence": "confirmed" },
-      { "from": "Program.cs#Program.Main", "to": "Greeter.cs#IGreeter.Greet", "callKind": "method", "confidence": "likely" },
-      { "from": "Greeter.cs#Greeter.Greet", "to": "Greeter.cs#Greeter.Format", "callKind": "direct", "confidence": "confirmed" },
-      { "from": "Report.cs#Report.FirstScore", "to": "Models.cs#Item.Score", "callKind": "direct", "confidence": "confirmed" }
+      {
+        "from": "Program.cs#Program.Main",
+        "to": "Greeter.cs#Greeter",
+        "callKind": "direct",
+        "confidence": "confirmed"
+      },
+      {
+        "from": "Program.cs#Program.Main",
+        "to": "Greeter.cs#IGreeter.Greet",
+        "callKind": "method",
+        "confidence": "likely"
+      },
+      {
+        "from": "Greeter.cs#Greeter.Greet",
+        "to": "Greeter.cs#Greeter.Format",
+        "callKind": "direct",
+        "confidence": "confirmed"
+      },
+      {
+        "from": "Report.cs#Report.FirstScore",
+        "to": "Models.cs#Item.Score",
+        "callKind": "direct",
+        "confidence": "confirmed"
+      }
     ],
-    "forbidden": [{ "from": "Program.cs#Program.Main", "to": "Greeter.cs#Greeter.Format" }]
+    "forbidden": [
+      {
+        "from": "Program.cs#Program.Main",
+        "to": "Greeter.cs#Greeter.Format"
+      },
+      {
+        "from": "Report.cs#Report.FirstScore",
+        "to": "unresolved#nameof"
+      }
+    ]
   },
   "entryPoints": {
-    "required": [{ "path": "Program.cs", "kind": "source_entry" }]
+    "required": [
+      {
+        "path": "Program.cs",
+        "kind": "source_entry"
+      }
+    ]
   },
-  "duplicates": { "requiredIds": [], "forbiddenIds": ["dup:name:Greet"] },
+  "duplicates": {
+    "requiredIds": [],
+    "forbiddenIds": [
+      "dup:name:Greet"
+    ]
+  },
   "reachability": [
     {
       "target": "Program.Main",
-      "mustReach": ["Greeter.cs#Greeter", "Greeter.cs#IGreeter.Greet"],
-      "mustNotReach": ["Greeter.cs#Greeter.Format"]
+      "mustReach": [
+        "Greeter.cs#Greeter",
+        "Greeter.cs#IGreeter.Greet"
+      ],
+      "mustNotReach": [
+        "Greeter.cs#Greeter.Format"
+      ]
     }
   ]
 }

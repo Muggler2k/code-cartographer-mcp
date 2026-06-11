@@ -235,6 +235,16 @@ foreach (var tree in trees)
             // contribute only a better NAME for the unresolved edge.
             var info = model.GetSymbolInfo(invocation);
             var clean = info.Symbol as IMethodSymbol;
+            // `nameof(...)` that binds NO symbol is the C# operator — it folds to a
+            // compile-time constant and is not a call, so an edge would be noise, not
+            // evidence. A real method NAMED nameof binds a symbol (clean non-null) and
+            // keeps its edge; an ambiguous one has no constant value and stays unresolved.
+            if (clean is null
+                && invocation.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" }
+                && model.GetConstantValue(invocation).HasValue)
+            {
+                continue;
+            }
             var target = clean?.ReducedFrom?.OriginalDefinition ?? clean?.OriginalDefinition;
             var label = invocation.Expression.ToString();
             if (label.Length > 60) label = label[..60];
