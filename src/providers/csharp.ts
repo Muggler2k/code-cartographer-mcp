@@ -112,10 +112,14 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs: number): Promi
 
 // ---- Mapping sidecar output to the provider extraction ----
 
-const SIGNAL_KINDS: ReadonlySet<string> = new Set(["class", "const", "enum", "function", "interface", "type"]);
+const SIGNAL_KINDS: ReadonlySet<string> = new Set(["class", "const", "enum", "field", "function", "interface", "property", "type"]);
 
-// The sidecar contract emits class|interface|enum|type|function; the fallback only guards a
-// future sidecar kind we have not mapped yet (it must never throw mid-build).
+// Data members (ADR 0032) are ownership signals only — the call graph stays behavior
+// (types + methods), so these kinds never become CallGraphNodes below.
+const DATA_MEMBER_KINDS: ReadonlySet<string> = new Set(["property", "field"]);
+
+// The sidecar contract emits class|interface|enum|type|function|property|field; the fallback
+// only guards a future sidecar kind we have not mapped yet (it must never throw mid-build).
 function toKind(kind: string): OwnershipSignalKind {
   return (SIGNAL_KINDS.has(kind) ? kind : "const") as OwnershipSignalKind;
 }
@@ -174,7 +178,9 @@ export const csharpProvider: LanguageProvider = {
     const ownershipSignals: OwnershipSignal[] = [];
     for (const decl of response.declarations ?? []) {
       const kind = toKind(decl.kind);
-      declarations.push({ id: decl.id, symbol: decl.symbol, path: decl.path, kind, confidence: "confirmed" });
+      if (!DATA_MEMBER_KINDS.has(kind)) {
+        declarations.push({ id: decl.id, symbol: decl.symbol, path: decl.path, kind, confidence: "confirmed" });
+      }
       ownershipSignals.push({
         symbol: decl.symbol,
         kind,

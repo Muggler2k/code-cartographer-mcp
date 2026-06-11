@@ -142,6 +142,34 @@ foreach (var tree in trees)
 
             if (methodDecl.Identifier.Text == "Main" && methodSymbol.IsStatic) entryPaths.Add(rel);
         }
+        else if (node is PropertyDeclarationSyntax propDecl && propDecl.Parent is TypeDeclarationSyntax propOwner)
+        {
+            // Data members (ADR 0032): ownership signals on the Node side, never graph nodes.
+            var propSymbol = model.GetDeclaredSymbol(propDecl);
+            if (propSymbol is null) continue;
+            var compound = $"{propOwner.Identifier.Text}.{propDecl.Identifier.Text}";
+            var propId = $"{rel}#{compound}";
+            if (seenIds.Add(propId))
+            {
+                var exported = IsPublic(propSymbol) && IsPublic(propSymbol.ContainingType);
+                declarations.Add(new DeclOut(propId, compound, rel, "property", exported));
+            }
+        }
+        else if (node is FieldDeclarationSyntax fieldDecl && fieldDecl.Parent is TypeDeclarationSyntax fieldOwner)
+        {
+            foreach (var variable in fieldDecl.Declaration.Variables)
+            {
+                var fieldSymbol = model.GetDeclaredSymbol(variable);
+                if (fieldSymbol is null) continue;
+                var compound = $"{fieldOwner.Identifier.Text}.{variable.Identifier.Text}";
+                var fieldId = $"{rel}#{compound}";
+                if (seenIds.Add(fieldId))
+                {
+                    var exported = IsPublic(fieldSymbol) && IsPublic(fieldSymbol.ContainingType);
+                    declarations.Add(new DeclOut(fieldId, compound, rel, "field", exported));
+                }
+            }
+        }
         else if (node is GlobalStatementSyntax)
         {
             entryPaths.Add(rel); // top-level statements — the compiler's synthesized entry

@@ -149,7 +149,7 @@ describe.runIf(available)("csharpProvider.analyze (ADR 0027 — Roslyn semantics
   }, 120_000);
 
   it("binds repo-internal calls whose receiver type flows through the BCL (ADR 0032 Tier 1)", async () => {
-    // Pre-0332 this failed binding: without LINQ references, items.First() has an error
+    // Pre-0032 this failed binding: without LINQ references, items.First() has an error
     // type, so .Score() cannot bind and degraded to unresolved#Score. With host-SDK
     // references the INTERNAL edge resolves; the EXTERNAL target (First) must STAY
     // unresolved#First — references improve binding, never the codebase-only boundary.
@@ -174,6 +174,28 @@ describe.runIf(available)("csharpProvider.analyze (ADR 0027 — Roslyn semantics
     const external = ex.callEdges.find((e) => e.to === "unresolved#First");
     expect(external?.callKind).toBe("unresolved");
     expect(external?.confidence).toBe("unresolved");
+  }, 120_000);
+
+  it("emits property/field ownership signals with export grading — signals only, never call-graph nodes (ADR 0032)", async () => {
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "Customer.cs":
+          "public class Customer {\n" +
+          "  public string Name { get; set; } = \"\";\n" +
+          "  public int Limit;\n" +
+          "  private int secret;\n" +
+          "}\n"
+      })
+    );
+    const own = new Map(ex.ownershipSignals.map((s) => [s.symbol, s]));
+    expect(own.get("Customer.Name")?.kind).toBe("property");
+    expect(own.get("Customer.Name")?.exported).toBe(true);
+    expect(own.get("Customer.Limit")?.kind).toBe("field");
+    expect(own.get("Customer.Limit")?.exported).toBe(true);
+    expect(own.get("Customer.secret")?.exported).toBe(false);
+    // Data members are ownership signals ONLY — the call graph stays behavior (types + methods).
+    expect(ex.declarations.some((d) => d.id === "Customer.cs#Customer.Name")).toBe(false);
+    expect(ex.declarations.some((d) => d.id === "Customer.cs#Customer.Limit")).toBe(false);
   }, 120_000);
 
   it("degrades to an empty extraction on unreadable input, never throwing", async () => {
