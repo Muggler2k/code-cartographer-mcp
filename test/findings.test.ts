@@ -7,8 +7,8 @@ function decl(id: string, kind: CallGraphNode["kind"] = "function"): CallGraphNo
   const [path, symbol] = id.split("#");
   return { id, symbol, path, kind, confidence: "confirmed" };
 }
-function own(path: string, symbol: string, exported: boolean): OwnershipSignal {
-  return { symbol, kind: "function", path, exported, confidence: "confirmed", reason: "x" };
+function own(path: string, symbol: string, exported: boolean, kind: OwnershipSignal["kind"] = "function"): OwnershipSignal {
+  return { symbol, kind, path, exported, confidence: "confirmed", reason: "x" };
 }
 function srcFile(path: string): FileEntry {
   return { path, category: "source", sizeBytes: 1, sha256: "h", hashScope: "content", analyzable: true, analysisReason: "text source", mtimeMs: 0 };
@@ -121,5 +121,31 @@ describe("deriveFindings (D4, ADR 0017)", () => {
     expect(f.uncertainty[0].item).toMatch(/not runtime-proven/i);
     expect(f.uncertainty.some((u) => /heuristic/i.test(u.item))).toBe(true); // b.py
     expect(f.uncertainty.some((u) => /unresolved/i.test(u.item))).toBe(true); // unresolved edge
+  });
+
+  it("data-member kinds never enter name-collision grouping — no duplicate from two same-named properties (ADR 0032)", () => {
+    const f = deriveFindings(
+      input({
+        ownershipSignals: [own("Customer.cs", "Customer.Name", true, "property"), own("Vendor.cs", "Customer.Name", true, "property")]
+      })
+    );
+    expect(f.duplicatePathCandidates).toHaveLength(0);
+  });
+
+  it("data-member kinds are not canonical-path candidates and do not scatter ownership (ADR 0032)", () => {
+    const f = deriveFindings(
+      input({
+        declarations: [decl("a.ts#main")],
+        ownershipSignals: [
+          own("a.cs", "Cfg.Limit", true, "field"),
+          own("b.cs", "Cfg.Limit", true, "field"),
+          own("c.cs", "Cfg.Limit", true, "field"),
+          own("a.ts", "main", true)
+        ],
+        callEdges: [{ from: "a.ts#main", to: "a.cs#Cfg.Limit", callKind: "direct", confidence: "confirmed", evidence: [] }]
+      })
+    );
+    expect(f.canonicalPaths.some((c) => c.id.endsWith("Cfg.Limit"))).toBe(false);
+    expect(f.riskAreas.some((r) => r.finding.includes("Cfg.Limit"))).toBe(false);
   });
 });

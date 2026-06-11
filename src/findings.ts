@@ -77,6 +77,11 @@ const MAX_ORPHAN_FINDINGS = 10;
 
 const WEAK_EDGE_KINDS = new Set(["dynamic", "framework", "unresolved"]);
 
+// Data members (ADR 0032) name API surface, not behavior: two types each exposing `.Name`
+// is not a parallel implementation. Excluded from exported-name grouping, which feeds the
+// duplicate, canonical, and scattered-ownership rules.
+const DATA_MEMBER_KINDS: ReadonlySet<OwnershipSignal["kind"]> = new Set(["property", "field"]);
+
 function pathOf(nodeId: string): string {
   const hash = nodeId.lastIndexOf("#");
   return hash === -1 ? nodeId : nodeId.slice(0, hash);
@@ -131,9 +136,11 @@ export function deriveFindings(input: FindingsInput): DerivedFindings {
   // Exported signals grouped by symbol name. Re-export signals are excluded (Decision 0026):
   // an alias is the SAME implementation surfaced elsewhere, never a parallel one — without
   // this, every barrel file would false-positive the name-collision rule below.
+  // Data-member kinds (property/field) are excluded (ADR 0032): two types each exposing
+  // `.Name` is API surface, not a parallel implementation.
   const exportedByName = new Map<string, OwnershipSignal[]>();
   for (const sig of input.ownershipSignals) {
-    if (!sig.exported || sig.reExport) continue;
+    if (!sig.exported || sig.reExport || DATA_MEMBER_KINDS.has(sig.kind)) continue;
     const bucket = exportedByName.get(sig.symbol) ?? [];
     bucket.push(sig);
     exportedByName.set(sig.symbol, bucket);

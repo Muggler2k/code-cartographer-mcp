@@ -187,7 +187,9 @@ export interface ModuleGroup {
   files: string[];
 }
 
-export type OwnershipSignalKind = "class" | "const" | "enum" | "function" | "interface" | "type";
+// "property" | "field" (ADR 0032): C# data members. Additive — ownership signals are not
+// part of `mapHash` (file-identity only, Decision 0011), so schema stays v1.
+export type OwnershipSignalKind = "class" | "const" | "enum" | "field" | "function" | "interface" | "property" | "type";
 
 export interface OwnershipSignal {
   symbol: string;
