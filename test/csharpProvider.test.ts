@@ -148,6 +148,34 @@ describe.runIf(available)("csharpProvider.analyze (ADR 0027 — Roslyn semantics
     expect(fromType).toEqual(["Svc.cs#Svc.Init", "Svc.cs#Svc.Measure"]);
   }, 120_000);
 
+  it("binds repo-internal calls whose receiver type flows through the BCL (ADR 0032 Tier 1)", async () => {
+    // Pre-0332 this failed binding: without LINQ references, items.First() has an error
+    // type, so .Score() cannot bind and degraded to unresolved#Score. With host-SDK
+    // references the INTERNAL edge resolves; the EXTERNAL target (First) must STAY
+    // unresolved#First — references improve binding, never the codebase-only boundary.
+    const ex = await csharpProvider.analyze(
+      providerInput({
+        "Models.cs": "public class Item {\n  public int Score() { return 1; }\n}\n",
+        "Report.cs":
+          "using System.Collections.Generic;\n" +
+          "using System.Linq;\n" +
+          "public static class Report {\n" +
+          "  public static int First(List<Item> items) {\n" +
+          "    return items.First().Score();\n" +
+          "  }\n" +
+          "}\n"
+      })
+    );
+    const internal = ex.callEdges.find((e) => e.to === "Models.cs#Item.Score");
+    expect(internal?.from).toBe("Report.cs#Report.First");
+    expect(internal?.callKind).toBe("direct");
+    expect(internal?.confidence).toBe("confirmed");
+    expect(ex.callEdges.some((e) => e.to === "unresolved#Score")).toBe(false);
+    const external = ex.callEdges.find((e) => e.to === "unresolved#First");
+    expect(external?.callKind).toBe("unresolved");
+    expect(external?.confidence).toBe("unresolved");
+  }, 120_000);
+
   it("degrades to an empty extraction on unreadable input, never throwing", async () => {
     const ex = await csharpProvider.analyze({
       repositoryRoot: "/repo",

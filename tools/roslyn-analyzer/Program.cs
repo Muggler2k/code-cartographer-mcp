@@ -53,13 +53,33 @@ foreach (var file in request.Files)
     trees.Add(CSharpSyntaxTree.ParseText(file.Text ?? "", parseOptions, path: file.Path));
 }
 
+// References: the HOST SDK's own Trusted Platform Assemblies (ADR 0032 Tier 1) — the
+// runtime already running this tool supplies the BCL surface so repo-internal bindings
+// that flow through framework types resolve. METADATA only, analysis-time binding;
+// nothing from the TARGET repo is referenced or loaded, and external TARGETS still map
+// to unresolved#name below. Any unloadable assembly is skipped; if everything fails we
+// fall back to the corelib floor (the ADR 0027 failure ladder: degrade, never throw).
+var references = new List<MetadataReference>();
+if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
+{
+    foreach (var assemblyPath in tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+    {
+        try { references.Add(MetadataReference.CreateFromFile(assemblyPath)); }
+        catch { /* unreadable/non-assembly entry — skip */ }
+    }
+}
+if (references.Count == 0)
+{
+    references.Add(MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+}
+
 // OutputKind only shapes semantic checks (e.g. top-level statements need an exe kind on
 // some paths; DLL is the neutral choice). `.Emit()` is NEVER called — nothing is compiled
 // to a runnable artifact, loaded, or executed (codebase-only, ADR 0001/0027).
 var compilation = CSharpCompilation.Create(
     "codebase",
     trees,
-    new[] { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) },
+    references,
     new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
 var declarations = new List<DeclOut>();
