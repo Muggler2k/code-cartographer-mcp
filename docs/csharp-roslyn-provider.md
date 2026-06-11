@@ -54,6 +54,33 @@ but still maps to `unresolved#name` — references improve binding, never upgrad
 claims. Results are analysis-time binding against the host SDK's surface, not the
 target's exact TFM (disclosed, like SDK presence itself).
 
+### Measured Tier-1 gain (2026-06-11, external ASP.NET 9 repo)
+
+The datum ADR 0032 deferred Tier 2 on, measured before/after on an external ASP.NET Core
+9 inventory-management repo (2661 files, 457 `.cs`; pre-0032 commit vs. `main`, same
+`auto` scope, Roslyn tier confirmed active on both sides):
+
+- **Edge resolution: zero gain.** C#-origin edges 4018 → 4019; `unresolved#name` targets
+  2779 → 2780 (**69.2% unchanged**); resolved (`direct`+`method`) and `confirmed` counts
+  identical. The one added edge is disclosure, not regression: a `new Claim(...)` now
+  binds far enough to surface, and its external target correctly stays `unresolved#Claim`.
+- **Why:** the sidecar is a console process, so its TPA set is `Microsoft.NETCore.App`
+  only. This repo's failed bindings flow through ASP.NET Core (a separate shared
+  framework), EF Core, MediatR, FluentValidation, and AutoMapper — all outside the TPA.
+  The LINQ-flowing case Tier 1 fixes (`System.Linq` ∈ TPA) is real but rare in
+  framework-heavy application code.
+- **Data members delivered fully:** ownership signals 4153 → 6538 (+2385 property/field).
+- **Tier-2 upper bound on this repo:** 294 of 2780 unresolved C#-origin edges (10.6%)
+  target a name matching a repo-internal member — canonically `ApplyIsDeletedFilter`
+  (71 edges), an internal `IQueryable<T>` extension whose call sites fail binding because
+  the receiver is an EF Core `DbSet<T>`. Tier 2 (`project.assets.json` + NuGet cache)
+  would plausibly recover most of these (69.2% → ~62% best case); the remaining ~89% are
+  genuinely external and stay `unresolved#name` by policy under any tier.
+- **Cost:** init wall-clock 17.3s → 17.8s (TPA loading ≈ +3%; soft ceilings unaffected).
+- **Noise observation:** `nameof` accounts for 308 unresolved edges (~11% of unresolved
+  C# noise); it is an operator, not a call — a sidecar filter would be a cheap precision
+  win, but needs a fixture construct + golden first (ADR 0028).
+
 ## Known limits (disclosed; deferred in ADRs 0027/0032)
 
 - Calls inside top-level statements and field initializers emit **no edges** (the file still

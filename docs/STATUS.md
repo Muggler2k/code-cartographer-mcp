@@ -66,7 +66,7 @@ build/typecheck pass. Design is recorded in CAS Decisions 0001–0032. See
 Epics A–M + Q + O are implemented (ADR 0024 graph-traversal unification; ADR 0025 internal seams; ADR 0026 findings derivation v2; ADR 0027 C# Roslyn provider; ADR 0029 capability evaluation harness; ADR 0030 benchmark gates; ADR 0031 diff/PR mode). The **v0.2 "Verified Static Context"** roadmap (ADR 0028) ratifies the remaining order: N (C++ semantic tier) → R (onboarding) → S (CAS export) → T (canonical path registry) → P (incremental refresh) — and its anti-goals (no new findings/provider claims without harness scores). PR #1 (the genesis review PR) got a 5-dimension multi-reviewer pass; its boundary-wording (HF-2/3/4) and analysis-classification (HF-5/6) findings are fixed, and the top architectural finding (HF-1) is fully resolved. What's left:
 
 - **✅ DONE — Graph-traversal unification (HF-1 · Epic I · ADR 0024)** and **internal-seams deepening (Epic J · ADR 0025)**: one analysis-context envelope, one tool spec table behind MCP + CLI, schema/engine split, shared test fixtures.
-- **More language-specific providers** behind the existing `LanguageProvider` interface (C#/Roslyn ✅ done, ADR 0027; ✅ deepened by ADR 0032 — host-SDK references + data-member signals; still deferred there: Tier 2 `project.assets.json` package references, C# events, field-initializer edges; next candidates: deeper Python/Go). Signature-aware duplicate detection was reviewed and deferred (ADR 0026).
+- **More language-specific providers** behind the existing `LanguageProvider` interface (C#/Roslyn ✅ done, ADR 0027; ✅ deepened by ADR 0032 — host-SDK references + data-member signals; **Tier-1 gain measured 2026-06-11** on an external ASP.NET 9 repo: zero edge-resolution gain (unresolved ratio 69.2% unchanged — the failed bindings flow through ASP.NET Core/EF Core/NuGet surface outside the TPA set), data-member signals +2385; Tier-2 upper bound ~294 edges (10.6% of unresolved C# edges) — see [`csharp-roslyn-provider.md`](./csharp-roslyn-provider.md) §Measured Tier-1 gain; still deferred there: Tier 2 `project.assets.json` package references, C# events, field-initializer edges; next candidates: deeper Python/Go). Signature-aware duplicate detection was reviewed and deferred (ADR 0026).
 - **Promote draft CAS policies** (`output-mode-policy.md`, workflows, prompts) from draft → accepted now that they are realized in code.
 - **Confirm final dependency pins** (architecture D5: `typescript` is a runtime dep; confirm SDK/zod/vitest pins; bump `engines.node` to ≥ 22.5 for `node:sqlite`) before any release.
 
@@ -75,7 +75,7 @@ Epics A–M + Q + O are implemented (ADR 0024 graph-traversal unification; ADR 0
 Product requirements, policies, and decisions live in the sibling **CAS** repo
 `../debug_mcp_context_manager` (see [`cas-source-of-truth.md`](./cas-source-of-truth.md)).
 This repo owns implementation only. The CAS-side current-state record is
-`context/sessions/2026-06-11_csharp-parity-adr-0032.md` and
+`context/sessions/2026-06-11_tier1-external-measurement.md` and
 `context/00_index/index.md`; design is recorded in ADRs 0001–0032 under
 `context/07_decisions/` (ADR 0028 — the v0.2 roadmap; ADR 0032 — C# tier parity: host-SDK references + data-member ownership).
 
