@@ -45,7 +45,10 @@ function approxTokens(text: string): number {
 
 function scanHonesty(text: string): { vocab: string[]; boundary: boolean } {
   const vocab = CONFIDENCE_VOCAB.filter((w) => new RegExp(`\\b${w}\\b`, "i").test(text));
-  const boundary = /codebase-only|not runtime|runtime proof|uncertaint|unresolved/i.test(text);
+  // Match the human banner ("Codebase-only") AND the structured-output forms the JSON modes
+  // emit (`codebase_only`, `codebaseOnlyBoundary`) — the hyphen-only regex previously missed
+  // llm_readable, which is why the boundary flag read "-" on the JSON-heavy ASP.NET summary.
+  const boundary = /codebase[-_]only|codebaseonlyboundary|not runtime|runtime proof|uncertaint|unresolved/i.test(text);
   return { vocab, boundary };
 }
 
@@ -93,6 +96,10 @@ async function callTool(
 }
 
 const CODE_EXT = /\.(ts|tsx|js|jsx|cs|vb|py|go|java|rs|rb|cpp|cc|c|h)$/i;
+// Vendored / generated / static-asset paths: real but not application code. Rooting the
+// symbol/path tools at a vendored admin-template JS (e.g. wwwroot/.../jquery.vmap.js) makes
+// those tools' measurements unrepresentative, so the seed picker skips these.
+const VENDORED = /(^|\/)(node_modules|bower_components|vendor|third_party|wwwroot|dist|build|out|assets|public|packages)\/|[.-]min\.(js|css)$/i;
 
 /**
  * After init, derive real seeds from the persisted map so the symbol/path tools exercise
@@ -110,17 +117,20 @@ function deriveSeeds(): { symbol: string; to: string; file: string } {
   const nodes = map.callGraph?.nodes ?? [];
   const edges = map.callGraph?.edges ?? [];
   const pathOf = new Map(nodes.map((n) => [n.id, n.path]));
-  const isCode = (id: string): boolean => CODE_EXT.test(pathOf.get(id) ?? "");
+  const isAppCode = (id: string): boolean => {
+    const p = pathOf.get(id) ?? "";
+    return CODE_EXT.test(p) && !VENDORED.test(p);
+  };
 
-  // Out-degree over code-rooted, non-self edges → the most connected real hub.
+  // Out-degree over application-code, non-self edges → the most connected real hub (vendored skipped).
   const outDegree = new Map<string, number>();
   for (const e of edges) {
-    if (e.from !== e.to && isCode(e.from)) outDegree.set(e.from, (outDegree.get(e.from) ?? 0) + 1);
+    if (e.from !== e.to && isAppCode(e.from)) outDegree.set(e.from, (outDegree.get(e.from) ?? 0) + 1);
   }
   const hub = [...outDegree.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const symbol = hub ?? nodes.find((n) => CODE_EXT.test(n.path))?.id ?? nodes[0]?.id ?? "main";
+  const symbol = hub ?? nodes.find((n) => isAppCode(n.id))?.id ?? nodes[0]?.id ?? "main";
   const to = edges.find((e) => e.from === symbol && e.to !== symbol)?.to ?? symbol;
-  const file = pathOf.get(symbol) ?? map.files?.find((f) => CODE_EXT.test(f.path))?.path ?? "src";
+  const file = pathOf.get(symbol) ?? map.files?.find((f) => CODE_EXT.test(f.path) && !VENDORED.test(f.path))?.path ?? "src";
   return { symbol, to, file };
 }
 

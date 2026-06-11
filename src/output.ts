@@ -70,6 +70,53 @@ function section(title: string, lines: string[]): string[] {
   return ["", `## ${title}`, ...(lines.length > 0 ? lines : ["- —"])];
 }
 
+/** "showing N of M" suffix when a list is capped — true totals are never hidden. */
+function capNote(shown: number, total: number): string {
+  return total > shown ? ` _(showing ${shown} of ${total})_` : "";
+}
+
+/**
+ * Context-summary output cap (ADR 0034 S1): the `init_codebase` / `get_context_summary`
+ * `llm_readable` payloads previously dumped the whole `summary` — including every
+ * `ownershipSignal` and each module's full `files[]` — so output scaled with repo size
+ * (measured ~536k tokens on a medium repo, past any agent's context budget). Sample lists are
+ * capped at this many; `counts` carry the true totals and the persisted map keeps everything.
+ */
+const SUMMARY_SAMPLE_CAP = 20;
+
+/**
+ * A bounded projection of `summary` for `llm_readable` (ADR 0034 S1): counts + true totals +
+ * capped samples, with each module's `files[]` reduced to `fileCount`. The codebase-only
+ * boundary is intentionally omitted from this projection — the caller ships it alongside
+ * (top-level `analysisBoundary` + `meta.codebaseOnlyBoundary`), so it is never duplicated here.
+ */
+function summaryDigest(summary: StaticContextMap["summary"]): Record<string, unknown> {
+  const cap = SUMMARY_SAMPLE_CAP;
+  const truncated =
+    summary.importantFiles.length > cap ||
+    summary.entryPoints.length > cap ||
+    summary.modules.length > cap ||
+    summary.ownershipSignals.length > cap;
+  return {
+    totalFiles: summary.totalFiles,
+    categories: summary.categories,
+    languages: summary.languages,
+    counts: {
+      importantFiles: summary.importantFiles.length,
+      entryPoints: summary.entryPoints.length,
+      modules: summary.modules.length,
+      ownershipSignals: summary.ownershipSignals.length
+    },
+    importantFiles: summary.importantFiles.slice(0, cap),
+    entryPoints: summary.entryPoints.slice(0, cap),
+    modules: summary.modules.slice(0, cap).map((m) => ({ name: m.name, root: m.root, category: m.category, fileCount: m.files.length })),
+    ownershipSignals: summary.ownershipSignals.slice(0, cap),
+    excluded: summary.excluded,
+    truncated,
+    digestNote: `llm digest (ADR 0034 S1): list samples capped at ${cap}; counts carry true totals; full data in .code-cartographer-mcp/context-map.json`
+  };
+}
+
 function uncertaintyLines(items: UncertaintyItem[]): string[] {
   return items.map((u) => `- **${u.item}** — ${u.reason} _(to confirm: ${u.requiredConfirmation})_`);
 }
@@ -165,8 +212,9 @@ export function formatInitResult(result: InitResult, mode: OutputMode): string {
     `- **Map written:** \`${result.mapPath}\``,
     `- **Map hash:** \`${meta.mapHash}\``
   ].join("\n");
-  // Project the llm payload: keep meta + summary, drop the (potentially large) files[].
-  const llmValue = { analysisBoundary: result.analysisBoundary, status: result.status, mapPath: result.mapPath, meta, summary };
+  // Project the llm payload: keep meta, but digest the summary (ADR 0034 S1) so output does
+  // not scale with repo size — drop files[], cap sample lists, reduce modules to fileCount.
+  const llmValue = { analysisBoundary: result.analysisBoundary, status: result.status, mapPath: result.mapPath, meta, summary: summaryDigest(summary) };
   return byMode(human, llmValue, mode);
 }
 
@@ -194,18 +242,21 @@ export function formatContextSummary(map: StaticContextMap | null, mode: OutputM
     `- **Files:** ${summary.totalFiles} (${categoryLine || "—"})`,
     `- **Languages:** ${Object.keys(summary.languages).join(", ") || "—"}`,
     `- **Generated:** ${meta.generatedAt} · **Map hash:** \`${meta.mapHash}\``,
-    ...section("Important files", sampleList(summary.importantFiles)),
     ...section(
-      "Entry points",
-      summary.entryPoints.map((e) => `- \`${e.path}\` \`${e.confidence}\` — ${e.reason}`)
+      `Important files${capNote(SUMMARY_SAMPLE_CAP, summary.importantFiles.length)}`,
+      sampleList(summary.importantFiles.slice(0, SUMMARY_SAMPLE_CAP))
     ),
     ...section(
-      "Modules",
-      summary.modules.map((m) => `- **${m.name}** (${m.category}) — ${m.files.length} file(s)`)
+      `Entry points${capNote(SUMMARY_SAMPLE_CAP, summary.entryPoints.length)}`,
+      summary.entryPoints.slice(0, SUMMARY_SAMPLE_CAP).map((e) => `- \`${e.path}\` \`${e.confidence}\` — ${e.reason}`)
+    ),
+    ...section(
+      `Modules${capNote(SUMMARY_SAMPLE_CAP, summary.modules.length)}`,
+      summary.modules.slice(0, SUMMARY_SAMPLE_CAP).map((m) => `- **${m.name}** (${m.category}) — ${m.files.length} file(s)`)
     ),
     ...section("Uncertainty", uncertaintyLines(map.findings.uncertainty))
   ].join("\n");
-  const llmValue = { analysisBoundary: "codebase_only", meta, summary };
+  const llmValue = { analysisBoundary: "codebase_only", meta, summary: summaryDigest(summary) };
   return byMode(human, llmValue, mode);
 }
 
@@ -433,7 +484,6 @@ export function formatScopePreview(result: ScopePreview, mode: OutputMode): stri
 export function formatMapDiff(result: MapDiffResult, mode: OutputMode): string {
   const d = result.delta;
   const t = d.totals;
-  const capNote = (shown: number, total: number): string => (total > shown ? ` _(showing ${shown} of ${total})_` : "");
   const verdictLine = (label: string, hit: boolean): string => `- ${hit ? "⚠ **YES**" : "no"} — ${label}`;
   const human = [
     "# Static Diff (baseline → current)",

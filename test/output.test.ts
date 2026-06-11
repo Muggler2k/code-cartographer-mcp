@@ -303,3 +303,71 @@ describe("all result formatters (Epic D, output-mode policy)", () => {
     expect(parsed.uncertainty.length).toBeGreaterThan(0);
   });
 });
+
+// ADR 0034 S1 — the summary/init llm payload must stay bounded regardless of repo size.
+describe("context-summary llm digest is bounded (ADR 0034 S1)", () => {
+  function bigMap(): StaticContextMap {
+    const map = testContextMap({ files: [testFileEntry("src/index.ts")] });
+    map.summary = {
+      ...map.summary,
+      totalFiles: 5000,
+      importantFiles: Array.from({ length: 500 }, (_, i) => `src/file${i}.ts`),
+      entryPoints: Array.from({ length: 500 }, (_, i) => ({
+        path: `src/entry${i}.ts`,
+        kind: "source_entry" as const,
+        confidence: "likely" as const,
+        reason: "conventional entry point with a deliberately long reason to inflate size"
+      })),
+      modules: Array.from({ length: 500 }, (_, i) => ({
+        name: `mod${i}`,
+        root: `src/mod${i}`,
+        category: "source" as const,
+        files: Array.from({ length: 50 }, (_, j) => `src/mod${i}/f${j}.ts`)
+      })),
+      ownershipSignals: Array.from({ length: 5000 }, (_, i) => ({
+        symbol: `Symbol${i}`,
+        kind: "function" as const,
+        path: `src/file${i}.ts`,
+        exported: true,
+        confidence: "confirmed" as const,
+        reason: "exported declaration with a long descriptive reason field"
+      }))
+    };
+    return map;
+  }
+
+  it("caps every sample list at 20 while keeping true totals and the codebase-only boundary", () => {
+    const parsed = JSON.parse(formatContextSummary(bigMap(), "llm_readable"));
+    expect(parsed.analysisBoundary).toBe("codebase_only");
+    expect(parsed.meta.codebaseOnlyBoundary).toBe(true);
+    expect(parsed.summary.ownershipSignals).toHaveLength(20);
+    expect(parsed.summary.modules).toHaveLength(20);
+    expect(parsed.summary.entryPoints).toHaveLength(20);
+    expect(parsed.summary.importantFiles).toHaveLength(20);
+    expect(parsed.summary.counts).toMatchObject({ ownershipSignals: 5000, modules: 500, entryPoints: 500, importantFiles: 500 });
+    expect(parsed.summary.truncated).toBe(true);
+    // modules collapse to fileCount — the full files[] never ships in the digest.
+    expect(parsed.summary.modules[0].fileCount).toBe(50);
+    expect(parsed.summary.modules[0].files).toBeUndefined();
+  });
+
+  it("stays small regardless of repo size (5000 signals → bounded payload)", () => {
+    const out = formatContextSummary(bigMap(), "llm_readable");
+    expect(out.length).toBeLessThan(15000);
+  });
+
+  it("does not mark a small summary truncated", () => {
+    const parsed = JSON.parse(formatContextSummary(minimalMap(), "llm_readable"));
+    expect(parsed.summary.truncated).toBe(false);
+    expect(parsed.summary.counts.ownershipSignals).toBe(1);
+    expect(parsed.summary.ownershipSignals).toHaveLength(1);
+  });
+
+  it("formatInitResult applies the same bounded digest", () => {
+    const parsed = JSON.parse(formatInitResult(initResult, "llm_readable"));
+    expect(parsed.summary.digestNote).toContain("ADR 0034 S1");
+    expect(parsed.summary.counts).toBeDefined();
+    expect(parsed.analysisBoundary).toBe("codebase_only");
+    expect(parsed.meta.codebaseOnlyBoundary).toBe(true);
+  });
+});
