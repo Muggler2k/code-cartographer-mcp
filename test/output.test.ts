@@ -236,7 +236,7 @@ const mapDiff: MapDiffResult = {
     resolvedRiskAreaCount: 0,
     canonicalRemovedIds: [],
     confidence: { regressions: [], improvements: 0, weakEdgeRatioBaseline: 0.1, weakEdgeRatioCurrent: 0.2, uncertaintyItemsBaseline: 1, uncertaintyItemsCurrent: 2 },
-    totals: { filesAdded: 1, filesRemoved: 0, filesChanged: 1, nodesAdded: 1, nodesRemoved: 0, edgesAdded: 0, edgesRemoved: 0, newDuplicates: 1, newLegacy: 0, legacyTransitions: 1, newRiskAreas: 0, confidenceRegressions: 0 }
+    totals: { filesAdded: 1, filesRemoved: 0, filesChanged: 1, nodesAdded: 1, nodesRemoved: 0, edgesAdded: 0, edgesRemoved: 0, newDuplicates: 1, newLegacy: 0, legacyTransitions: 1, revivedLegacy: 1, newRiskAreas: 0, bypassedAbstractions: 0, confidenceRegressions: 0 }
   },
   verdict: { addedParallelPath: true, bypassedAbstraction: false, revivedLegacy: true, increasedUncertainty: true },
   recommendation: { action: "consolidate", target: "dup:name:parse", rationale: "parallel path" },
@@ -294,5 +294,12 @@ describe("all result formatters (Epic D, output-mode policy)", () => {
   it("formatLegacyClassification surfaces the per-path uncertainty caveat in human mode", () => {
     const out = formatLegacyClassification(legacy, "human_readable");
     expect(out).toContain(legacy.legacyPaths[0].uncertainty[0].item);
+  });
+
+  it("formatMapDiff surfaces the static-not-behavior uncertainty in both modes", () => {
+    const out = formatMapDiff(mapDiff, "human_readable");
+    expect(out).toContain(mapDiff.uncertainty[0].item);
+    const parsed = JSON.parse(formatMapDiff(mapDiff, "llm_readable"));
+    expect(parsed.uncertainty.length).toBeGreaterThan(0);
   });
 });

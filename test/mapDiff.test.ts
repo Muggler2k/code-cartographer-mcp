@@ -102,6 +102,32 @@ describe("compareMaps (pure comparator)", () => {
     expect(d.totals.filesAdded).toBe(30);
   });
 
+  it("verdict flags see signals past the list cap (graded from totals, not the capped lists)", () => {
+    // The ONLY revived transition and the ONLY bypassed-abstraction finding sort/land
+    // beyond MAX_DELTA_LIST — the capped lists miss them, the verdict must not.
+    const baseline = testContextMap({});
+    baseline.findings.legacyPathCandidates = Array.from({ length: MAX_DELTA_LIST + 1 }, (_, i) =>
+      legacy(`legacy/${String(i).padStart(2, "0")}.ts#old`, "apparently_unreachable")
+    );
+    const current = testContextMap({});
+    current.findings.legacyPathCandidates = baseline.findings.legacyPathCandidates.map((l, i) =>
+      legacy(l.id, i === MAX_DELTA_LIST ? "still_reachable" : "unclear")
+    );
+    current.findings.riskAreas = [
+      ...Array.from({ length: MAX_DELTA_LIST }, (_, i) => risk(`a-risk ${String(i).padStart(2, "0")}: god file`)),
+      risk("z-risk: caller.ts uses an internal helper — possible bypassed abstraction.")
+    ];
+    const d = compareMaps(baseline, current);
+    expect(d.legacyTransitions).toHaveLength(MAX_DELTA_LIST);
+    expect(d.legacyTransitions.some((t) => t.revived)).toBe(false);
+    expect(d.newRiskAreas.some((r) => /bypassed abstraction/i.test(r.finding))).toBe(false);
+    expect(d.totals.revivedLegacy).toBe(1);
+    expect(d.totals.bypassedAbstractions).toBe(1);
+    const { verdict } = gradeDelta(d);
+    expect(verdict.revivedLegacy).toBe(true);
+    expect(verdict.bypassedAbstraction).toBe(true);
+  });
+
   it("a clean delta yields an all-no verdict and a reuse recommendation", () => {
     const map = testContextMap({ files: [testFileEntry("a.ts")], nodes: [testNode("a.ts#f")] });
     const { verdict, recommendation } = gradeDelta(compareMaps(map, map));

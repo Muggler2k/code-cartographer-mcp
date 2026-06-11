@@ -6,7 +6,7 @@ The Context Architecture System repository at `../debug_mcp_context_manager` rem
 
 ## Status: implemented (Epics A–M, Q, O)
 
-**The full product is implemented and tested.** The MCP server registers all **20 tools** and the CLI dispatches them — both surfaces are adapters over one declarative tool spec table (ADR 0025); `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. A capability evaluation harness (`npm run eval`, ADR 0029) scores the analyzer against golden-annotated fixture repos — all five pass with zero confidence-invariant violations — and benchmark gates (ADR 0030) pin the structural performance metrics against checked-in baselines. Diff/PR mode (`analyze_diff`, ADR 0031) compares the persisted baseline map against the current tree (or an explicit snapshot) and returns a bounded six-section delta with an added-parallel-path / bypassed-abstraction / revived-legacy / increased-uncertainty verdict. 305 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0031. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md), and [`docs/csharp-roslyn-provider.md`](docs/csharp-roslyn-provider.md).
+**The full product is implemented and tested.** The MCP server registers all **20 tools** and the CLI dispatches them — both surfaces are adapters over one declarative tool spec table (ADR 0025); `init_codebase` builds and persists a real `.code-cartographer-mcp/context-map.json`, and the analysis, call-stack, and visualization tools run end-to-end over it. A static path-finding subsystem over a derived `graph-index.sqlite` (ADR 0023) backs indexed caller/callee/path queries. A capability evaluation harness (`npm run eval`, ADR 0029) scores the analyzer against golden-annotated fixture repos — all five pass with zero confidence-invariant violations — and benchmark gates (ADR 0030) pin the structural performance metrics against checked-in baselines. Diff/PR mode (`analyze_diff`, ADR 0031) compares the persisted baseline map against the current tree (or an explicit snapshot) and returns a bounded six-section delta with an added-parallel-path / bypassed-abstraction / revived-legacy / increased-uncertainty verdict. 307 tests pass; build/typecheck pass. Design is recorded in CAS Decisions 0001–0031. See [`docs/STATUS.md`](docs/STATUS.md), [`docs/architecture.md`](docs/architecture.md), [`docs/backlog.md`](docs/backlog.md), [`docs/pathfinding-and-graph-index.md`](docs/pathfinding-and-graph-index.md), and [`docs/csharp-roslyn-provider.md`](docs/csharp-roslyn-provider.md).
 
 ## Scope
 
@@ -43,7 +43,7 @@ npm run build
 npm test
 ```
 
-`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (305 tests; the C# Roslyn provider suite runs only where the `dotnet` CLI exists — without it C# analysis falls back to the tree-sitter tier).
+`npm run build` and `npm run typecheck` pass. `npm test` runs the full Vitest suite (307 tests; the C# Roslyn provider suite runs only where the `dotnet` CLI exists — without it C# analysis falls back to the tree-sitter tier).
 
 ## Run Locally
 

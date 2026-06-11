@@ -29,6 +29,8 @@ export const MAX_DELTA_LIST = 25;
 
 const WEAK_EDGE_KINDS = new Set(["dynamic", "framework", "unresolved"]);
 
+const BYPASSED_ABSTRACTION_RE = /bypassed abstraction/i;
+
 export interface LegacyTransition {
   id: string;
   from: LegacyReachability;
@@ -80,7 +82,11 @@ export interface MapDelta {
     newDuplicates: number;
     newLegacy: number;
     legacyTransitions: number;
+    /** Transitions landing on `still_reachable` — the verdict must see these past the cap. */
+    revivedLegacy: number;
     newRiskAreas: number;
+    /** New bypassed-abstraction risk areas — the verdict must see these past the cap. */
+    bypassedAbstractions: number;
     confidenceRegressions: number;
   };
 }
@@ -226,7 +232,9 @@ export function compareMaps(baseline: StaticContextMap, current: StaticContextMa
       newDuplicates: newDuplicates.length,
       newLegacy: newLegacy.length,
       legacyTransitions: legacyTransitions.length,
+      revivedLegacy: legacyTransitions.filter((t) => t.revived).length,
       newRiskAreas: newRiskAreas.length,
+      bypassedAbstractions: newRiskAreas.filter((r) => BYPASSED_ABSTRACTION_RE.test(r.finding)).length,
       confidenceRegressions: regressions.length
     }
   };
@@ -236,8 +244,10 @@ export function compareMaps(baseline: StaticContextMap, current: StaticContextMa
 export function gradeDelta(delta: MapDelta): { verdict: DiffVerdict; recommendation: Recommendation } {
   const verdict: DiffVerdict = {
     addedParallelPath: delta.totals.newDuplicates > 0,
-    bypassedAbstraction: delta.newRiskAreas.some((r) => /bypassed abstraction/i.test(r.finding)),
-    revivedLegacy: delta.legacyTransitions.some((t) => t.revived),
+    // Flags read `totals` (uncapped), never the display-capped lists — a signal past the
+    // cap must still flip the verdict.
+    bypassedAbstraction: delta.totals.bypassedAbstractions > 0,
+    revivedLegacy: delta.totals.revivedLegacy > 0,
     increasedUncertainty:
       delta.totals.confidenceRegressions > 0 ||
       delta.confidence.weakEdgeRatioCurrent > delta.confidence.weakEdgeRatioBaseline ||
@@ -249,7 +259,7 @@ export function gradeDelta(delta: MapDelta): { verdict: DiffVerdict; recommendat
   } else if (verdict.revivedLegacy) {
     recommendation = { action: "avoid", target: delta.legacyTransitions.find((t) => t.revived)?.id ?? "revived legacy", rationale: "The change adds a static reference to a legacy path; avoid reviving it without confirmation." };
   } else if (verdict.bypassedAbstraction) {
-    recommendation = { action: "investigate", target: delta.newRiskAreas.find((r) => /bypassed abstraction/i.test(r.finding))?.finding.slice(0, 80) ?? "bypassed abstraction", rationale: "The change reaches an internal symbol past a public surface; route through the exported API or promote it intentionally." };
+    recommendation = { action: "investigate", target: delta.newRiskAreas.find((r) => BYPASSED_ABSTRACTION_RE.test(r.finding))?.finding.slice(0, 80) ?? "bypassed abstraction", rationale: "The static structure suggests an internal symbol may be used past a public surface; route through the exported API or promote it intentionally." };
   } else if (verdict.increasedUncertainty) {
     recommendation = { action: "investigate", target: delta.confidence.regressions[0]?.edge ?? "weakened static evidence", rationale: "The static evidence got weaker (more dynamic/unresolved structure); confirm the affected paths." };
   } else {
@@ -285,7 +295,7 @@ function emptyDelta(): MapDelta {
     resolvedRiskAreaCount: 0,
     canonicalRemovedIds: [],
     confidence: { regressions: [], improvements: 0, weakEdgeRatioBaseline: 0, weakEdgeRatioCurrent: 0, uncertaintyItemsBaseline: 0, uncertaintyItemsCurrent: 0 },
-    totals: { filesAdded: 0, filesRemoved: 0, filesChanged: 0, nodesAdded: 0, nodesRemoved: 0, edgesAdded: 0, edgesRemoved: 0, newDuplicates: 0, newLegacy: 0, legacyTransitions: 0, newRiskAreas: 0, confidenceRegressions: 0 }
+    totals: { filesAdded: 0, filesRemoved: 0, filesChanged: 0, nodesAdded: 0, nodesRemoved: 0, edgesAdded: 0, edgesRemoved: 0, newDuplicates: 0, newLegacy: 0, legacyTransitions: 0, revivedLegacy: 0, newRiskAreas: 0, bypassedAbstractions: 0, confidenceRegressions: 0 }
   };
 }
 
