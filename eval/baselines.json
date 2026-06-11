@@ -28,7 +28,7 @@
       "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
     },
     "csharp-small": {
-      "structural": { "files": 2, "nodes": 7, "edges": 3, "summaryChars": 2921, "summaryCharsTolerancePct": 20 },
+      "structural": { "files": 4, "nodes": 11, "edges": 5, "summaryChars": 4069, "summaryCharsTolerancePct": 20 },
       "pathQuery": {
         "from": "Program.cs#Program.Main",
         "to": "Greeter.cs#Greeter",

@@ -7,20 +7,27 @@
       "Greeter.cs#IGreeter.Greet",
       "Greeter.cs#Greeter",
       "Greeter.cs#Greeter.Greet",
-      "Greeter.cs#Greeter.Format"
+      "Greeter.cs#Greeter.Format",
+      "Models.cs#Item",
+      "Models.cs#Item.Score",
+      "Report.cs#Report",
+      "Report.cs#Report.FirstScore"
     ],
-    "forbidden": []
+    "forbidden": ["Models.cs#Item.Tag"]
   },
   "exported": {
     "Program.cs#Program.Main": true,
     "Greeter.cs#Greeter.Greet": true,
-    "Greeter.cs#Greeter.Format": false
+    "Greeter.cs#Greeter.Format": false,
+    "Models.cs#Item.Tag": true,
+    "Report.cs#Report.FirstScore": true
   },
   "edges": {
     "required": [
       { "from": "Program.cs#Program.Main", "to": "Greeter.cs#Greeter", "callKind": "direct", "confidence": "confirmed" },
       { "from": "Program.cs#Program.Main", "to": "Greeter.cs#IGreeter.Greet", "callKind": "method", "confidence": "likely" },
-      { "from": "Greeter.cs#Greeter.Greet", "to": "Greeter.cs#Greeter.Format", "callKind": "direct", "confidence": "confirmed" }
+      { "from": "Greeter.cs#Greeter.Greet", "to": "Greeter.cs#Greeter.Format", "callKind": "direct", "confidence": "confirmed" },
+      { "from": "Report.cs#Report.FirstScore", "to": "Models.cs#Item.Score", "callKind": "direct", "confidence": "confirmed" }
     ],
     "forbidden": [{ "from": "Program.cs#Program.Main", "to": "Greeter.cs#Greeter.Format" }]
   },
