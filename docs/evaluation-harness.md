@@ -42,7 +42,7 @@ risk/duplicate findings ≤ `candidate`, risk areas carry uncertainty · legacy 
 
 ## Baseline (Epic M close, this machine)
 
-All five fixtures **PASS — 75/75 required, 0 forbidden, 0 invariant violations**. External
+All five fixtures **PASS — 82/82 required, 0 forbidden, 0 invariant violations** (75 → 82 with the ADR 0032 csharp-small constructs: the BCL-bound internal edge + data-member signal/forbidden-node pins). External
 subjects (invariant-clean): `Calculator-master` (5 files incl. a binary, ~0.8 s init) and a
 2,661-file ASP.NET 9 repo (59 k edges, ~17–22 s init, **~357 k-token** `llm_readable`
 summary — recorded as direct input to Epic Q gates and Epic O's changed-files mode).
