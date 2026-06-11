@@ -15,6 +15,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { CallEdge, CallGraphNode, EntryPoint, OwnershipSignal, OwnershipSignalKind } from "../schema.js";
+import { DATA_MEMBER_KINDS } from "../schema.js";
 import type { LanguageProvider, ProviderExtraction, ProviderInput } from "./types.js";
 
 const ANALYZER_DIR = fileURLToPath(new URL("../../tools/roslyn-analyzer", import.meta.url));
@@ -113,10 +114,6 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs: number): Promi
 // ---- Mapping sidecar output to the provider extraction ----
 
 const SIGNAL_KINDS: ReadonlySet<string> = new Set(["class", "const", "enum", "field", "function", "interface", "property", "type"]);
-
-// Data members (ADR 0032) are ownership signals only — the call graph stays behavior
-// (types + methods), so these kinds never become CallGraphNodes below.
-const DATA_MEMBER_KINDS: ReadonlySet<string> = new Set(["property", "field"]);
 
 // The sidecar contract emits class|interface|enum|type|function|property|field; the fallback
 // only guards a future sidecar kind we have not mapped yet (it must never throw mid-build).

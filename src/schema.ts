@@ -191,6 +191,14 @@ export interface ModuleGroup {
 // part of `mapHash` (file-identity only, Decision 0011), so schema stays v1.
 export type OwnershipSignalKind = "class" | "const" | "enum" | "field" | "function" | "interface" | "property" | "type";
 
+/**
+ * Data-member kinds (ADR 0032): API surface, not behavior. They become ownership signals
+ * only — never call-graph nodes — and never feed exported-name collision grouping
+ * (duplicates, canonical, scattered ownership). Shared vocabulary so the provider and
+ * findings derivation cannot drift.
+ */
+export const DATA_MEMBER_KINDS: ReadonlySet<OwnershipSignalKind> = new Set(["property", "field"]);
+
 export interface OwnershipSignal {
   symbol: string;
   kind: OwnershipSignalKind;

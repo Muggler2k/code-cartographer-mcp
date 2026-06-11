@@ -18,6 +18,7 @@ import type {
   UncertaintyItem
 } from "./schema.js";
 import type { CallEdge, CallGraphNode } from "./schema.js";
+import { DATA_MEMBER_KINDS } from "./schema.js";
 import { tarjanScc } from "./pathfinding.js";
 
 export interface FindingsInput {
@@ -76,11 +77,6 @@ const MAX_GOD_FUNCTION_FINDINGS = 8;
 const MAX_ORPHAN_FINDINGS = 10;
 
 const WEAK_EDGE_KINDS = new Set(["dynamic", "framework", "unresolved"]);
-
-// Data members (ADR 0032) name API surface, not behavior: two types each exposing `.Name`
-// is not a parallel implementation. Excluded from exported-name grouping, which feeds the
-// duplicate, canonical, and scattered-ownership rules.
-const DATA_MEMBER_KINDS: ReadonlySet<OwnershipSignal["kind"]> = new Set(["property", "field"]);
 
 function pathOf(nodeId: string): string {
   const hash = nodeId.lastIndexOf("#");

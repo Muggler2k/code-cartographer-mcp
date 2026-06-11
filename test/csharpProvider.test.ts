@@ -160,14 +160,14 @@ describe.runIf(available)("csharpProvider.analyze (ADR 0027 — Roslyn semantics
           "using System.Collections.Generic;\n" +
           "using System.Linq;\n" +
           "public static class Report {\n" +
-          "  public static int First(List<Item> items) {\n" +
+          "  public static int FirstScore(List<Item> items) {\n" +
           "    return items.First().Score();\n" +
           "  }\n" +
           "}\n"
       })
     );
     const internal = ex.callEdges.find((e) => e.to === "Models.cs#Item.Score");
-    expect(internal?.from).toBe("Report.cs#Report.First");
+    expect(internal?.from).toBe("Report.cs#Report.FirstScore");
     expect(internal?.callKind).toBe("direct");
     expect(internal?.confidence).toBe("confirmed");
     expect(ex.callEdges.some((e) => e.to === "unresolved#Score")).toBe(false);
