@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npx vitest run -t "stale"` — run tests matching a name.
 - `npm run dev` — start the stdio MCP server through `tsx` (no build needed).
 - `npm run eval` — capability-evaluation scorecard (ADR 0029): scores the analyzer against `eval/fixtures/` goldens; `CCM_EVAL_EXTERNAL=<path;path>` adds external real repos (invariants/perf/shape only).
+- `npm run dogfood -- [<targetRepo>]` — S0 dogfood harness (proposed ADR 0034): drives the **built** `dist/index.js` over the real MCP stdio transport, inits the target (defaults to this repo), calls all 20 tools in `llm_readable`, and reports per-tool latency / output-token size / never-throw + honesty-marker presence → `eval/results/dogfood-latest.json`. A diagnostic, not a gate. Build first.
 - `npm run cli -- <init|status|summary> <repositoryRoot> [--llm]` — exercise the tools as a CLI. `--llm` selects `llm_readable` JSON output instead of human-readable markdown.
 - `npm start` — run the compiled `dist/index.js` (build first).
 - MCP clients must point at the **built** `dist/index.js` (`npm run build` first); `dev`/`cli` run unbuilt `src/` via `tsx`. See `docs/mcp-client-config.md`.
