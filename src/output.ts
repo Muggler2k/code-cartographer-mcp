@@ -76,13 +76,36 @@ function capNote(shown: number, total: number): string {
 }
 
 /**
- * Context-summary output cap (ADR 0034 S1): the `init_codebase` / `get_context_summary`
- * `llm_readable` payloads previously dumped the whole `summary` — including every
- * `ownershipSignal` and each module's full `files[]` — so output scaled with repo size
- * (measured ~536k tokens on a medium repo, past any agent's context budget). Sample lists are
- * capped at this many; `counts` carry the true totals and the persisted map keeps everything.
+ * Shared sample cap for every `llm_readable` digest (ADR 0034 S1): the init/summary, call-stack,
+ * drift, and reachability payloads previously serialized whole lists, so output scaled with repo /
+ * graph / finding count (the worst measured ~536k tokens). Each digest caps its sample lists at
+ * this many; `counts` carry the true totals + per-field breakdowns and the persisted map keeps
+ * everything. One shared value so the tools cannot drift apart.
  */
-const SUMMARY_SAMPLE_CAP = 20;
+const DIGEST_SAMPLE_CAP = 20;
+
+/** A bounded list projection (ADR 0034 S1): a head `sample`, the true `total`, and a `truncated` flag. */
+function cappedSample<T>(items: T[], cap = DIGEST_SAMPLE_CAP): { sample: T[]; total: number; truncated: boolean } {
+  return { sample: items.slice(0, cap), total: items.length, truncated: items.length > cap };
+}
+
+/** Standard digest disclosure prefix (ADR 0034 S1) — the per-tool detail is appended by the caller. */
+function digestNote(detail: string): string {
+  return `llm digest (ADR 0034 S1): ${detail}`;
+}
+
+/**
+ * A `## Title` section whose list is capped to `cap` with a "showing N of M" note in the title
+ * (true total never hidden). `render` maps each item to one line or several. Mirrors the
+ * `llm_readable` cap in `cappedSample` so the human and agent surfaces stay in lockstep.
+ */
+function cappedSection<T>(title: string, items: T[], render: (item: T) => string | string[], cap = DIGEST_SAMPLE_CAP): string[] {
+  const lines = items.slice(0, cap).flatMap((item) => {
+    const rendered = render(item);
+    return Array.isArray(rendered) ? rendered : [rendered];
+  });
+  return section(`${title}${capNote(cap, items.length)}`, lines);
+}
 
 /**
  * A bounded projection of `summary` for `llm_readable` (ADR 0034 S1): counts + true totals +
@@ -91,29 +114,28 @@ const SUMMARY_SAMPLE_CAP = 20;
  * (top-level `analysisBoundary` + `meta.codebaseOnlyBoundary`), so it is never duplicated here.
  */
 function summaryDigest(summary: StaticContextMap["summary"]): Record<string, unknown> {
-  const cap = SUMMARY_SAMPLE_CAP;
-  const truncated =
-    summary.importantFiles.length > cap ||
-    summary.entryPoints.length > cap ||
-    summary.modules.length > cap ||
-    summary.ownershipSignals.length > cap;
+  const cap = DIGEST_SAMPLE_CAP;
+  const importantFiles = cappedSample(summary.importantFiles, cap);
+  const entryPoints = cappedSample(summary.entryPoints, cap);
+  const modules = cappedSample(summary.modules, cap);
+  const ownershipSignals = cappedSample(summary.ownershipSignals, cap);
   return {
     totalFiles: summary.totalFiles,
     categories: summary.categories,
     languages: summary.languages,
     counts: {
-      importantFiles: summary.importantFiles.length,
-      entryPoints: summary.entryPoints.length,
-      modules: summary.modules.length,
-      ownershipSignals: summary.ownershipSignals.length
+      importantFiles: importantFiles.total,
+      entryPoints: entryPoints.total,
+      modules: modules.total,
+      ownershipSignals: ownershipSignals.total
     },
-    importantFiles: summary.importantFiles.slice(0, cap),
-    entryPoints: summary.entryPoints.slice(0, cap),
-    modules: summary.modules.slice(0, cap).map((m) => ({ name: m.name, root: m.root, category: m.category, fileCount: m.files.length })),
-    ownershipSignals: summary.ownershipSignals.slice(0, cap),
+    importantFiles: importantFiles.sample,
+    entryPoints: entryPoints.sample,
+    modules: modules.sample.map((m) => ({ name: m.name, root: m.root, category: m.category, fileCount: m.files.length })),
+    ownershipSignals: ownershipSignals.sample,
     excluded: summary.excluded,
-    truncated,
-    digestNote: `llm digest (ADR 0034 S1): list samples capped at ${cap}; counts carry true totals; full data in .code-cartographer-mcp/context-map.json`
+    truncated: importantFiles.truncated || entryPoints.truncated || modules.truncated || ownershipSignals.truncated,
+    digestNote: digestNote(`list samples capped at ${cap}; counts carry true totals; full data in .code-cartographer-mcp/context-map.json`)
   };
 }
 
@@ -242,18 +264,9 @@ export function formatContextSummary(map: StaticContextMap | null, mode: OutputM
     `- **Files:** ${summary.totalFiles} (${categoryLine || "—"})`,
     `- **Languages:** ${Object.keys(summary.languages).join(", ") || "—"}`,
     `- **Generated:** ${meta.generatedAt} · **Map hash:** \`${meta.mapHash}\``,
-    ...section(
-      `Important files${capNote(SUMMARY_SAMPLE_CAP, summary.importantFiles.length)}`,
-      sampleList(summary.importantFiles.slice(0, SUMMARY_SAMPLE_CAP))
-    ),
-    ...section(
-      `Entry points${capNote(SUMMARY_SAMPLE_CAP, summary.entryPoints.length)}`,
-      summary.entryPoints.slice(0, SUMMARY_SAMPLE_CAP).map((e) => `- \`${e.path}\` \`${e.confidence}\` — ${e.reason}`)
-    ),
-    ...section(
-      `Modules${capNote(SUMMARY_SAMPLE_CAP, summary.modules.length)}`,
-      summary.modules.slice(0, SUMMARY_SAMPLE_CAP).map((m) => `- **${m.name}** (${m.category}) — ${m.files.length} file(s)`)
-    ),
+    ...cappedSection("Important files", summary.importantFiles, (f) => `- \`${f}\``),
+    ...cappedSection("Entry points", summary.entryPoints, (e) => `- \`${e.path}\` \`${e.confidence}\` — ${e.reason}`),
+    ...cappedSection("Modules", summary.modules, (m) => `- **${m.name}** (${m.category}) — ${m.files.length} file(s)`),
     ...section("Uncertainty", uncertaintyLines(map.findings.uncertainty))
   ].join("\n");
   const llmValue = { analysisBoundary: "codebase_only", meta, summary: summaryDigest(summary) };
@@ -290,35 +303,29 @@ export function formatFindPath(result: FindPathResult, mode: OutputMode): string
 }
 
 /**
- * Reachable-paths sample cap (ADR 0034 S1, issue #7): `analyze_reachability`'s `llm_readable`
- * payload serialized every `ReachablePath` (each with an evidence list) — output scaled with the
- * path count. Capped to a sample; the true total + per-confidence/per-reachability breakdowns live
- * in `counts`, the full paths in the persisted map.
- */
-const REACHABLE_PATHS_CAP = 20;
-
-/**
  * A bounded projection of a `ReachabilityResult` for `llm_readable` (ADR 0034 S1): boundary,
  * subject, status, summary, and the full `uncertainty` pass through; `reachablePaths` is capped to
  * a sample. `counts` carries the true total AND per-confidence + per-reachability breakdowns so
  * capping never hides the reachability distribution (a ≤`likely`, never-runtime-proven signal).
  */
 function reachabilityDigest(result: ReachabilityResult): Record<string, unknown> {
-  const cap = REACHABLE_PATHS_CAP;
+  const paths = cappedSample(result.reachablePaths);
   return {
     analysisBoundary: result.analysisBoundary,
     subject: result.subject,
     status: result.status,
     summary: result.summary,
     counts: {
-      reachablePaths: result.reachablePaths.length,
+      reachablePaths: paths.total,
       byConfidence: tally(result.reachablePaths, (p) => p.confidence),
       byReachability: tally(result.reachablePaths, (p) => p.reachability)
     },
-    reachablePaths: result.reachablePaths.slice(0, cap),
+    reachablePaths: paths.sample,
     uncertainty: result.uncertainty,
-    truncated: result.reachablePaths.length > cap,
-    digestNote: `llm digest (ADR 0034 S1): reachable-paths sample capped at ${cap}; counts carry the true total + per-confidence/per-reachability breakdowns; full paths in .code-cartographer-mcp/context-map.json. \`apparently_unreachable\` is a static candidate observation, never a confirmed dead-code claim.`
+    truncated: paths.truncated,
+    digestNote: digestNote(
+      `reachable-paths sample capped at ${DIGEST_SAMPLE_CAP}; counts carry the true total + per-confidence/per-reachability breakdowns; full paths in .code-cartographer-mcp/context-map.json. \`apparently_unreachable\` is a static candidate observation, never a confirmed dead-code claim.`
+    )
   };
 }
 
@@ -329,10 +336,7 @@ export function formatReachability(result: ReachabilityResult, mode: OutputMode)
     CODEBASE_ONLY_BANNER,
     "",
     result.summary,
-    ...section(
-      `Reachable paths${capNote(REACHABLE_PATHS_CAP, result.reachablePaths.length)}`,
-      result.reachablePaths.slice(0, REACHABLE_PATHS_CAP).map(reachLine)
-    ),
+    ...cappedSection("Reachable paths", result.reachablePaths, reachLine),
     ...section("Uncertainty", uncertaintyLines(result.uncertainty))
   ].join("\n");
   // Digest the llm payload (ADR 0034 S1) so output does not scale with path count — cap the
@@ -447,17 +451,19 @@ export function formatTestPaths(result: TestPathResult, mode: OutputMode): strin
  * full `uncertainty` list passes through. The persisted map keeps the complete findings.
  */
 function driftDigest(result: ArchitectureDriftResult): Record<string, unknown> {
-  const cap = DRIFT_FINDINGS_CAP;
+  const findings = cappedSample(result.driftFindings);
   return {
     analysisBoundary: result.analysisBoundary,
     counts: {
-      driftFindings: result.driftFindings.length,
+      driftFindings: findings.total,
       byConfidence: tally(result.driftFindings, (f) => f.confidence)
     },
-    driftFindings: result.driftFindings.slice(0, cap),
+    driftFindings: findings.sample,
     uncertainty: result.uncertainty,
-    truncated: result.driftFindings.length > cap,
-    digestNote: `llm digest (ADR 0034 S1): drift-findings sample capped at ${cap}; counts carry the true total + per-confidence breakdown; full findings in .code-cartographer-mcp/context-map.json`
+    truncated: findings.truncated,
+    digestNote: digestNote(
+      `drift-findings sample capped at ${DIGEST_SAMPLE_CAP}; counts carry the true total + per-confidence breakdown; full findings in .code-cartographer-mcp/context-map.json`
+    )
   };
 }
 
@@ -466,10 +472,7 @@ export function formatArchitectureDrift(result: ArchitectureDriftResult, mode: O
     "# Architecture Drift",
     "",
     CODEBASE_ONLY_BANNER,
-    ...section(
-      `Drift findings${capNote(DRIFT_FINDINGS_CAP, result.driftFindings.length)}`,
-      result.driftFindings.slice(0, DRIFT_FINDINGS_CAP).flatMap(findingLines)
-    ),
+    ...cappedSection("Drift findings", result.driftFindings, findingLines),
     ...section("Uncertainty", uncertaintyLines(result.uncertainty))
   ].join("\n");
   // Digest the llm payload (ADR 0034 S1) so output does not scale with finding count — cap the
@@ -477,23 +480,7 @@ export function formatArchitectureDrift(result: ArchitectureDriftResult, mode: O
   return byMode(human, driftDigest(result), mode);
 }
 
-/**
- * Call-graph sample cap (ADR 0034 S1, issue #7): `map_call_stack`'s `llm_readable` payload
- * previously serialized the entire `nodes[]`/`edges[]` (measured ~15k tokens on this repo, far
- * larger on real graphs). Node/edge samples are capped at this many; the full distribution is
- * preserved in `counts` (totals + a per-confidence / per-kind breakdown) and the persisted map.
- */
-const CALL_GRAPH_SAMPLE_CAP = 20;
-
-/**
- * Drift-findings sample cap (ADR 0034 S1, issue #7): `detect_architecture_drift`'s `llm_readable`
- * payload serialized every drift `Finding` (each carrying evidence + nested uncertainty) — ~60k
- * tokens on a medium repo. Capped to a sample; the true total + per-confidence breakdown live in
- * `counts`, the full findings in the persisted map.
- */
-const DRIFT_FINDINGS_CAP = 20;
-
-/** Tally values produced by `key` into a `{ value: count }` record — used for the edge breakdown. */
+/** Tally values produced by `key` into a `{ value: count }` record — used for digest breakdowns. */
 function tally<T>(items: T[], key: (item: T) => string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const item of items) {
@@ -511,24 +498,26 @@ function tally<T>(items: T[], key: (item: T) => string): Record<string, number> 
  * call-stack policy requires those be disclosed, not omitted.
  */
 function callStackDigest(result: CallStackResult): Record<string, unknown> {
-  const cap = CALL_GRAPH_SAMPLE_CAP;
-  const truncated = result.nodes.length > cap || result.edges.length > cap;
+  const nodes = cappedSample(result.nodes);
+  const edges = cappedSample(result.edges);
   return {
     analysisBoundary: result.analysisBoundary,
     entryPoint: result.entryPoint,
     rootId: result.rootId,
     maxDepthReached: result.maxDepthReached,
     counts: {
-      nodes: result.nodes.length,
-      edges: result.edges.length,
+      nodes: nodes.total,
+      edges: edges.total,
       edgesByConfidence: tally(result.edges, (e) => e.confidence),
       edgesByKind: tally(result.edges, (e) => e.callKind)
     },
-    nodes: result.nodes.slice(0, cap),
-    edges: result.edges.slice(0, cap),
+    nodes: nodes.sample,
+    edges: edges.sample,
     uncertainty: result.uncertainty,
-    truncated,
-    digestNote: `llm digest (ADR 0034 S1): node/edge samples capped at ${cap}; counts carry true totals + the per-confidence/per-kind edge breakdown (unresolved edges are disclosed there, never dropped); full graph in .code-cartographer-mcp/context-map.json`
+    truncated: nodes.truncated || edges.truncated,
+    digestNote: digestNote(
+      `node/edge samples capped at ${DIGEST_SAMPLE_CAP}; counts carry true totals + the per-confidence/per-kind edge breakdown (unresolved edges are disclosed there, never dropped); full graph in .code-cartographer-mcp/context-map.json`
+    )
   };
 }
 
@@ -540,11 +529,10 @@ export function formatCallStack(result: CallStackResult, mode: OutputMode): stri
     "",
     `_Static call graph — dynamic/DI/reflection/framework edges are graded down, never a runtime trace._`,
     `- **Root:** \`${result.rootId}\` · **Nodes:** ${result.nodes.length} · **Edges:** ${result.edges.length}${result.maxDepthReached ? " · ⚠️ max depth reached" : ""}`,
-    ...section(
-      `Edges${capNote(CALL_GRAPH_SAMPLE_CAP, result.edges.length)}`,
-      result.edges
-        .slice(0, CALL_GRAPH_SAMPLE_CAP)
-        .map((e) => `- \`${e.from}\` → \`${e.to}\` \`${e.callKind}\`/\`${e.confidence}\` — ${e.evidence.join("; ") || "—"}`)
+    ...cappedSection(
+      "Edges",
+      result.edges,
+      (e) => `- \`${e.from}\` → \`${e.to}\` \`${e.callKind}\`/\`${e.confidence}\` — ${e.evidence.join("; ") || "—"}`
     ),
     ...section("Uncertainty", uncertaintyLines(result.uncertainty))
   ].join("\n");
