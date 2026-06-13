@@ -491,3 +491,71 @@ describe("architecture-drift llm digest is bounded (ADR 0034 S1)", () => {
     expect(out).toContain("showing 20 of 300");
   });
 });
+
+// ADR 0034 S1 (issue #7) — analyze_reachability's llm payload must stay bounded regardless of how
+// many reachable paths exist. Cap the paths sample; counts keep the true total + a per-confidence
+// AND per-reachability breakdown, so the reachability distribution (a load-bearing, ≤likely signal)
+// stays disclosed even when most paths fall past the cap.
+describe("reachability llm digest is bounded (ADR 0034 S1)", () => {
+  function bigReach(): ReachabilityResult {
+    const reachablePaths = Array.from({ length: 400 }, (_, i) => ({
+      id: `p${i}`,
+      label: `index -> mod${i} -> target`,
+      // Every 4th path is apparently_unreachable → 100 of them, all past the sample cap.
+      reachability: (i % 4 === 0 ? "apparently_unreachable" : "reachable") as const,
+      confidence: (i % 4 === 0 ? "candidate" : "likely") as const,
+      evidence: [`call chain through src/mod${i}.ts with a long evidence string`]
+    }));
+    // A multi-item uncertainty so the no-truncation pin below is meaningful (a slice would shrink it).
+    const multiUncertainty = [
+      { item: "runtime path", reason: "static-only", requiredConfirmation: "execute to confirm" },
+      { item: "dynamic dispatch", reason: "DI/reflection edges unresolved", requiredConfirmation: "runtime trace" },
+      { item: "framework entry", reason: "invoked by the framework", requiredConfirmation: "runtime confirmation" }
+    ];
+    return {
+      analysisBoundary: "codebase_only",
+      subject: "target",
+      status: "likely",
+      summary: "reachable from several entry points",
+      reachablePaths,
+      uncertainty: multiUncertainty
+    };
+  }
+
+  it("caps the paths sample but keeps the true total, confidence + reachability breakdowns, and boundary", () => {
+    const parsed = JSON.parse(formatReachability(bigReach(), "llm_readable"));
+    expect(parsed.analysisBoundary).toBe("codebase_only");
+    expect(parsed.subject).toBe("target");
+    expect(parsed.status).toBe("likely");
+    expect(parsed.reachablePaths.length).toBeLessThanOrEqual(20);
+    expect(parsed.counts.reachablePaths).toBe(400);
+    expect(parsed.counts.byConfidence.candidate).toBe(100);
+    // The reachability distribution stays visible even though all 100 unreachable paths are sampled out.
+    expect(parsed.counts.byReachability.apparently_unreachable).toBe(100);
+    expect(parsed.counts.byReachability.reachable).toBe(300);
+    expect(parsed.truncated).toBe(true);
+    // Uncertainty is never truncated by the digest — pin the exact count, not just > 0.
+    expect(parsed.uncertainty).toHaveLength(3);
+    expect(parsed.digestNote).toContain("ADR 0034 S1");
+    // The most boundary-sensitive label carries its disclaimer at the point of consumption.
+    expect(parsed.digestNote).toContain("apparently_unreachable");
+  });
+
+  it("stays small regardless of path count (400 paths → bounded payload)", () => {
+    const out = formatReachability(bigReach(), "llm_readable");
+    expect(out.length).toBeLessThan(10000);
+  });
+
+  it("does not mark a small reachability result truncated and keeps the full paths list", () => {
+    const parsed = JSON.parse(formatReachability(reachability, "llm_readable"));
+    expect(parsed.truncated).toBe(false);
+    expect(parsed.reachablePaths).toHaveLength(1);
+    expect(parsed.counts.reachablePaths).toBe(1);
+    expect(parsed.counts.byReachability.reachable).toBe(1);
+  });
+
+  it("human_readable keeps the true path total visible even when the section is capped", () => {
+    const out = formatReachability(bigReach(), "human_readable");
+    expect(out).toContain("showing 20 of 400");
+  });
+});
