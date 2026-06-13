@@ -413,6 +413,53 @@ export function formatArchitectureDrift(result: ArchitectureDriftResult, mode: O
   return byMode(human, result, mode);
 }
 
+/**
+ * Call-graph sample cap (ADR 0034 S1, issue #7): `map_call_stack`'s `llm_readable` payload
+ * previously serialized the entire `nodes[]`/`edges[]` (measured ~15k tokens on this repo, far
+ * larger on real graphs). Node/edge samples are capped at this many; the full distribution is
+ * preserved in `counts` (totals + a per-confidence / per-kind breakdown) and the persisted map.
+ */
+const CALL_GRAPH_SAMPLE_CAP = 20;
+
+/** Tally values produced by `key` into a `{ value: count }` record — used for the edge breakdown. */
+function tally<T>(items: T[], key: (item: T) => string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const item of items) {
+    const k = key(item);
+    out[k] = (out[k] ?? 0) + 1;
+  }
+  return out;
+}
+
+/**
+ * A bounded projection of a `CallStackResult` for `llm_readable` (ADR 0034 S1): the boundary,
+ * entry/root, `maxDepthReached`, and the full (already-bounded) `uncertainty` pass through; the
+ * `nodes`/`edges` arrays are capped to samples. `counts` carries the true totals AND a per-edge
+ * confidence/kind breakdown so capping NEVER hides unresolved/dynamic/framework edges — the
+ * call-stack policy requires those be disclosed, not omitted.
+ */
+function callStackDigest(result: CallStackResult): Record<string, unknown> {
+  const cap = CALL_GRAPH_SAMPLE_CAP;
+  const truncated = result.nodes.length > cap || result.edges.length > cap;
+  return {
+    analysisBoundary: result.analysisBoundary,
+    entryPoint: result.entryPoint,
+    rootId: result.rootId,
+    maxDepthReached: result.maxDepthReached,
+    counts: {
+      nodes: result.nodes.length,
+      edges: result.edges.length,
+      edgesByConfidence: tally(result.edges, (e) => e.confidence),
+      edgesByKind: tally(result.edges, (e) => e.callKind)
+    },
+    nodes: result.nodes.slice(0, cap),
+    edges: result.edges.slice(0, cap),
+    uncertainty: result.uncertainty,
+    truncated,
+    digestNote: `llm digest (ADR 0034 S1): node/edge samples capped at ${cap}; counts carry true totals + the per-confidence/per-kind edge breakdown (unresolved edges are disclosed there, never dropped); full graph in .code-cartographer-mcp/context-map.json`
+  };
+}
+
 export function formatCallStack(result: CallStackResult, mode: OutputMode): string {
   const human = [
     `# Call Stack: ${result.entryPoint}`,
@@ -422,12 +469,17 @@ export function formatCallStack(result: CallStackResult, mode: OutputMode): stri
     `_Static call graph — dynamic/DI/reflection/framework edges are graded down, never a runtime trace._`,
     `- **Root:** \`${result.rootId}\` · **Nodes:** ${result.nodes.length} · **Edges:** ${result.edges.length}${result.maxDepthReached ? " · ⚠️ max depth reached" : ""}`,
     ...section(
-      "Edges",
-      result.edges.map((e) => `- \`${e.from}\` → \`${e.to}\` \`${e.callKind}\`/\`${e.confidence}\` — ${e.evidence.join("; ") || "—"}`)
+      `Edges${capNote(CALL_GRAPH_SAMPLE_CAP, result.edges.length)}`,
+      result.edges
+        .slice(0, CALL_GRAPH_SAMPLE_CAP)
+        .map((e) => `- \`${e.from}\` → \`${e.to}\` \`${e.callKind}\`/\`${e.confidence}\` — ${e.evidence.join("; ") || "—"}`)
     ),
     ...section("Uncertainty", uncertaintyLines(result.uncertainty))
   ].join("\n");
-  return byMode(human, result, mode);
+  // Digest the llm payload (ADR 0034 S1) so output does not scale with graph size — cap the
+  // node/edge samples, keep true totals + the per-confidence/kind edge breakdown so unresolved
+  // edges stay disclosed. The true edge count stays visible on the Root line above.
+  return byMode(human, callStackDigest(result), mode);
 }
 
 export function formatCallStackVisualization(result: CallStackVisualizationResult, mode: OutputMode): string {
