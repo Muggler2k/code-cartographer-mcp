@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { InitResult, InitStatusResult } from "../src/contextMap.js";
-import type { OutputMode, StaticContextMap } from "../src/schema.js";
+import type { CallEdge, CallGraphNode, OutputMode, StaticContextMap } from "../src/schema.js";
 import { testContextMap, testFileEntry } from "./helpers/fixtures.js";
 import type {
   ArchitectureDriftResult,
@@ -369,5 +369,76 @@ describe("context-summary llm digest is bounded (ADR 0034 S1)", () => {
     expect(parsed.summary.counts).toBeDefined();
     expect(parsed.analysisBoundary).toBe("codebase_only");
     expect(parsed.meta.codebaseOnlyBoundary).toBe(true);
+  });
+});
+
+// ADR 0034 S1 (issue #7) — the map_call_stack llm payload must stay bounded regardless of
+// graph size, WITHOUT hiding unresolved edges (call-stack-and-visualization-policy: edges that
+// cannot be resolved are disclosed, never omitted). The capped edge sample is backstopped by a
+// per-confidence / per-kind count breakdown so the full unresolved distribution stays visible.
+describe("call-stack llm digest is bounded (ADR 0034 S1)", () => {
+  function bigCallStack(): CallStackResult {
+    const nodes: CallGraphNode[] = Array.from({ length: 500 }, (_, i) => ({
+      id: `src/mod${i}.ts#fn${i}`,
+      symbol: `fn${i}`,
+      path: `src/mod${i}.ts`,
+      kind: "function" as const,
+      confidence: "confirmed" as const
+    }));
+    // Every 5th edge is unresolved → 100 unresolved edges, all of which land past the sample cap.
+    const edges: CallEdge[] = Array.from({ length: 500 }, (_, i) => ({
+      from: "src/index.ts#main",
+      to: `src/mod${i}.ts#fn${i}`,
+      callKind: (i % 5 === 0 ? "unresolved" : "direct") as const,
+      confidence: (i % 5 === 0 ? "unresolved" : "confirmed") as const,
+      evidence: [`call expression at src/index.ts:${i}`]
+    }));
+    return {
+      analysisBoundary: "codebase_only",
+      entryPoint: "main",
+      rootId: "src/index.ts#main",
+      nodes,
+      edges,
+      maxDepthReached: true,
+      uncertainty
+    };
+  }
+
+  it("caps node/edge samples but keeps true totals, the confidence/kind breakdown, boundary, and uncertainty", () => {
+    const parsed = JSON.parse(formatCallStack(bigCallStack(), "llm_readable"));
+    expect(parsed.analysisBoundary).toBe("codebase_only");
+    expect(parsed.entryPoint).toBe("main");
+    expect(parsed.rootId).toBe("src/index.ts#main");
+    expect(parsed.maxDepthReached).toBe(true);
+    expect(parsed.nodes.length).toBeLessThanOrEqual(20);
+    expect(parsed.edges.length).toBeLessThanOrEqual(20);
+    expect(parsed.counts.nodes).toBe(500);
+    expect(parsed.counts.edges).toBe(500);
+    // Unresolved edges stay disclosed via the breakdown even though they fall past the sample.
+    expect(parsed.counts.edgesByConfidence.unresolved).toBe(100);
+    expect(parsed.counts.edgesByKind.unresolved).toBe(100);
+    expect(parsed.truncated).toBe(true);
+    expect(Array.isArray(parsed.uncertainty)).toBe(true);
+    expect(parsed.uncertainty.length).toBeGreaterThan(0);
+    expect(parsed.digestNote).toContain("ADR 0034 S1");
+  });
+
+  it("stays small regardless of graph size (500 edges → bounded payload)", () => {
+    const out = formatCallStack(bigCallStack(), "llm_readable");
+    expect(out.length).toBeLessThan(9000);
+  });
+
+  it("does not mark a small call stack truncated and keeps the full edge list", () => {
+    const parsed = JSON.parse(formatCallStack(callStack, "llm_readable"));
+    expect(parsed.truncated).toBe(false);
+    expect(parsed.edges).toHaveLength(1);
+    expect(parsed.counts.edges).toBe(1);
+    expect(parsed.counts.edgesByConfidence.confirmed).toBe(1);
+  });
+
+  it("human_readable keeps the true edge total visible even when the Edges section is capped", () => {
+    const out = formatCallStack(bigCallStack(), "human_readable");
+    expect(out).toContain("**Edges:** 500"); // Root line carries the true total
+    expect(out).toContain("showing 20 of 500"); // capNote discloses the cap
   });
 });
