@@ -45,10 +45,16 @@ function approxTokens(text: string): number {
 
 function scanHonesty(text: string): { vocab: string[]; boundary: boolean } {
   const vocab = CONFIDENCE_VOCAB.filter((w) => new RegExp(`\\b${w}\\b`, "i").test(text));
-  // Match the human banner ("Codebase-only") AND the structured-output forms the JSON modes
-  // emit (`codebase_only`, `codebaseOnlyBoundary`) — the hyphen-only regex previously missed
-  // llm_readable, which is why the boundary flag read "-" on the JSON-heavy ASP.NET summary.
-  const boundary = /codebase[-_]only|codebaseonlyboundary|not runtime|runtime proof|uncertaint|unresolved/i.test(text);
+  // Match ONLY the dedicated boundary markers: the human banner ("Codebase-only") and the
+  // structured-output forms the JSON modes emit (`codebase_only`, `codebaseOnlyBoundary`).
+  // Every formatter ships one of these (human banner, top-level `analysisBoundary`, or
+  // `meta.codebaseOnlyBoundary`), so this stays `true` for honest output AND flips to `false`
+  // if a tool ever drops its boundary marker. Confidence/uncertainty VALUES (`unresolved`,
+  // `uncertaint`) were deliberately removed: they appear on most outputs regardless of whether
+  // a boundary is disclosed, so matching them defeated the guard (a tool could drop its
+  // boundary and still read honest on any output containing an `unresolved` edge). The full
+  // confidence vocabulary is still tracked independently in `vocab`.
+  const boundary = /codebase[-_]only|codebaseonlyboundary/i.test(text);
   return { vocab, boundary };
 }
 
