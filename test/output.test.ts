@@ -442,3 +442,52 @@ describe("call-stack llm digest is bounded (ADR 0034 S1)", () => {
     expect(out).toContain("showing 20 of 500"); // capNote discloses the cap
   });
 });
+
+// ADR 0034 S1 (issue #7) — detect_architecture_drift's llm payload must stay bounded regardless
+// of how many drift findings the repo accumulates (~60k tokens on a medium repo). Cap the
+// findings sample; counts + a per-confidence breakdown keep the true total disclosed.
+describe("architecture-drift llm digest is bounded (ADR 0034 S1)", () => {
+  function bigDrift(): ArchitectureDriftResult {
+    const driftFindings: Finding[] = Array.from({ length: 300 }, (_, i) => ({
+      finding: `drift finding ${i} with a deliberately long description to inflate per-item size`,
+      // Every 3rd is `candidate`, the rest `unclear` → 100 candidate, 200 unclear.
+      confidence: (i % 3 === 0 ? "candidate" : "unclear") as const,
+      evidence: [`module ${i} owns symbol ${i}`, `parallel owner at src/dup${i}.ts`],
+      risk: "drift",
+      recommendation: "consolidate",
+      uncertainty
+    }));
+    return { analysisBoundary: "codebase_only", driftFindings, uncertainty };
+  }
+
+  it("caps the findings sample but keeps the true total, confidence breakdown, boundary, and uncertainty", () => {
+    const parsed = JSON.parse(formatArchitectureDrift(bigDrift(), "llm_readable"));
+    expect(parsed.analysisBoundary).toBe("codebase_only");
+    expect(parsed.driftFindings.length).toBeLessThanOrEqual(20);
+    expect(parsed.counts.driftFindings).toBe(300);
+    expect(parsed.counts.byConfidence.candidate).toBe(100);
+    expect(parsed.counts.byConfidence.unclear).toBe(200);
+    expect(parsed.truncated).toBe(true);
+    expect(Array.isArray(parsed.uncertainty)).toBe(true);
+    expect(parsed.uncertainty.length).toBeGreaterThan(0);
+    expect(parsed.digestNote).toContain("ADR 0034 S1");
+  });
+
+  it("stays small regardless of finding count (300 findings → bounded payload)", () => {
+    const out = formatArchitectureDrift(bigDrift(), "llm_readable");
+    expect(out.length).toBeLessThan(12000);
+  });
+
+  it("does not mark a small drift result truncated and keeps the full findings list", () => {
+    const parsed = JSON.parse(formatArchitectureDrift(drift, "llm_readable"));
+    expect(parsed.truncated).toBe(false);
+    expect(parsed.driftFindings).toHaveLength(1);
+    expect(parsed.counts.driftFindings).toBe(1);
+    expect(parsed.counts.byConfidence.candidate).toBe(1);
+  });
+
+  it("human_readable keeps the true finding total visible even when the section is capped", () => {
+    const out = formatArchitectureDrift(bigDrift(), "human_readable");
+    expect(out).toContain("showing 20 of 300");
+  });
+});

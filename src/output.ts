@@ -402,15 +402,41 @@ export function formatTestPaths(result: TestPathResult, mode: OutputMode): strin
   return byMode(human, result, mode);
 }
 
+/**
+ * A bounded projection of an `ArchitectureDriftResult` for `llm_readable` (ADR 0034 S1, issue #7):
+ * the drift-findings list is capped to a sample (a repo can accumulate hundreds — ~60k tokens on
+ * a medium repo), while `counts` carries the true total plus a per-confidence breakdown and the
+ * full `uncertainty` list passes through. The persisted map keeps the complete findings.
+ */
+function driftDigest(result: ArchitectureDriftResult): Record<string, unknown> {
+  const cap = DRIFT_FINDINGS_CAP;
+  return {
+    analysisBoundary: result.analysisBoundary,
+    counts: {
+      driftFindings: result.driftFindings.length,
+      byConfidence: tally(result.driftFindings, (f) => f.confidence)
+    },
+    driftFindings: result.driftFindings.slice(0, cap),
+    uncertainty: result.uncertainty,
+    truncated: result.driftFindings.length > cap,
+    digestNote: `llm digest (ADR 0034 S1): drift-findings sample capped at ${cap}; counts carry the true total + per-confidence breakdown; full findings in .code-cartographer-mcp/context-map.json`
+  };
+}
+
 export function formatArchitectureDrift(result: ArchitectureDriftResult, mode: OutputMode): string {
   const human = [
     "# Architecture Drift",
     "",
     CODEBASE_ONLY_BANNER,
-    ...section("Drift findings", result.driftFindings.flatMap(findingLines)),
+    ...section(
+      `Drift findings${capNote(DRIFT_FINDINGS_CAP, result.driftFindings.length)}`,
+      result.driftFindings.slice(0, DRIFT_FINDINGS_CAP).flatMap(findingLines)
+    ),
     ...section("Uncertainty", uncertaintyLines(result.uncertainty))
   ].join("\n");
-  return byMode(human, result, mode);
+  // Digest the llm payload (ADR 0034 S1) so output does not scale with finding count — cap the
+  // sample, keep the true total + per-confidence breakdown. The true count is on the section title.
+  return byMode(human, driftDigest(result), mode);
 }
 
 /**
@@ -420,6 +446,14 @@ export function formatArchitectureDrift(result: ArchitectureDriftResult, mode: O
  * preserved in `counts` (totals + a per-confidence / per-kind breakdown) and the persisted map.
  */
 const CALL_GRAPH_SAMPLE_CAP = 20;
+
+/**
+ * Drift-findings sample cap (ADR 0034 S1, issue #7): `detect_architecture_drift`'s `llm_readable`
+ * payload serialized every drift `Finding` (each carrying evidence + nested uncertainty) — ~60k
+ * tokens on a medium repo. Capped to a sample; the true total + per-confidence breakdown live in
+ * `counts`, the full findings in the persisted map.
+ */
+const DRIFT_FINDINGS_CAP = 20;
 
 /** Tally values produced by `key` into a `{ value: count }` record — used for the edge breakdown. */
 function tally<T>(items: T[], key: (item: T) => string): Record<string, number> {
