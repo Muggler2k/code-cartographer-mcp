@@ -126,6 +126,49 @@ function renderCallStackAscii(rootId: string, nodes: CallGraphNode[], edges: Cal
   return lines.join("\n");
 }
 
+/**
+ * Diagram node budget (ADR 0034 S1, issue #7): a call-stack diagram from one entry point can still
+ * fan out to hundreds of nodes on a large repo, so the rendered spec scales unbounded. The diagram
+ * is rendered from a bounded subgraph capped at this many nodes — the diagram string can never be
+ * truncated mid-syntax (it must stay a valid spec), so the bound is applied to the graph, not the text.
+ */
+export const DIAGRAM_NODE_CAP = 40;
+
+/**
+ * Return a bounded, root-connected subgraph for rendering (ADR 0034 S1): a BFS from `rootId` keeping
+ * up to `cap` nodes and only the edges among them. Valid by construction — every retained edge's
+ * endpoints are in the node set, so no renderer emits a dangling reference. Under the cap, the inputs
+ * pass through unchanged. The dropped portion is disclosed by the caller (legend) and the full graph
+ * stays available via `map_call_stack` / the persisted map.
+ */
+export function boundedCallStackView(
+  rootId: string,
+  nodes: CallGraphNode[],
+  edges: CallEdge[],
+  cap = DIAGRAM_NODE_CAP
+): { nodes: CallGraphNode[]; edges: CallEdge[]; truncated: boolean } {
+  if (nodes.length <= cap) return { nodes, edges, truncated: false };
+  const adjacency = new Map<string, string[]>();
+  for (const e of edges) (adjacency.get(e.from) ?? adjacency.set(e.from, []).get(e.from)!).push(e.to);
+  const keep = new Set<string>([rootId]);
+  const queue = [rootId];
+  while (queue.length > 0 && keep.size < cap) {
+    const current = queue.shift()!;
+    for (const to of adjacency.get(current) ?? []) {
+      if (keep.size >= cap) break;
+      if (!keep.has(to)) {
+        keep.add(to);
+        queue.push(to);
+      }
+    }
+  }
+  return {
+    nodes: nodes.filter((n) => keep.has(n.id)),
+    edges: edges.filter((e) => keep.has(e.from) && keep.has(e.to)),
+    truncated: true
+  };
+}
+
 /** CAP-24 — Render the static call stack rooted at an entry point as a diagram spec. */
 export async function visualizeCallStack(
   repoOrContext: AnalysisTarget,
@@ -134,15 +177,23 @@ export async function visualizeCallStack(
   maxDepth?: number
 ): Promise<CallStackVisualizationResult> {
   const cs = await mapCallStack(repoOrContext, entryPoint, maxDepth);
-  const ids = idMapper(cs.nodes);
+  const view = boundedCallStackView(cs.rootId, cs.nodes, cs.edges);
+  const ids = idMapper(view.nodes);
   const diagram =
     format === "dot"
-      ? renderCallStackDot(cs.nodes, cs.edges, ids)
+      ? renderCallStackDot(view.nodes, view.edges, ids)
       : format === "ascii"
-        ? renderCallStackAscii(cs.rootId, cs.nodes, cs.edges)
-        : renderCallStackMermaid(cs.nodes, cs.edges, ids, cs.maxDepthReached);
+        ? renderCallStackAscii(cs.rootId, view.nodes, view.edges)
+        : renderCallStackMermaid(view.nodes, view.edges, ids, cs.maxDepthReached);
+  // Legend is computed from the FULL edge set so every edge style (incl. unresolved) stays explained
+  // even if the bound dropped some; the bound itself is disclosed as an extra legend line.
   const legend = legendFor(cs.edges);
   if (cs.maxDepthReached) legend.push("truncated node = traversal stopped at max depth, not a leaf");
+  if (view.truncated) {
+    legend.push(
+      `diagram bounded to ${view.nodes.length} of ${cs.nodes.length} nodes (${view.edges.length} of ${cs.edges.length} edges) — full graph via map_call_stack or the persisted map`
+    );
+  }
   return {
     analysisBoundary: BOUNDARY,
     entryPoint,
