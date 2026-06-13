@@ -289,6 +289,39 @@ export function formatFindPath(result: FindPathResult, mode: OutputMode): string
   return byMode(human, result, mode);
 }
 
+/**
+ * Reachable-paths sample cap (ADR 0034 S1, issue #7): `analyze_reachability`'s `llm_readable`
+ * payload serialized every `ReachablePath` (each with an evidence list) — output scaled with the
+ * path count. Capped to a sample; the true total + per-confidence/per-reachability breakdowns live
+ * in `counts`, the full paths in the persisted map.
+ */
+const REACHABLE_PATHS_CAP = 20;
+
+/**
+ * A bounded projection of a `ReachabilityResult` for `llm_readable` (ADR 0034 S1): boundary,
+ * subject, status, summary, and the full `uncertainty` pass through; `reachablePaths` is capped to
+ * a sample. `counts` carries the true total AND per-confidence + per-reachability breakdowns so
+ * capping never hides the reachability distribution (a ≤`likely`, never-runtime-proven signal).
+ */
+function reachabilityDigest(result: ReachabilityResult): Record<string, unknown> {
+  const cap = REACHABLE_PATHS_CAP;
+  return {
+    analysisBoundary: result.analysisBoundary,
+    subject: result.subject,
+    status: result.status,
+    summary: result.summary,
+    counts: {
+      reachablePaths: result.reachablePaths.length,
+      byConfidence: tally(result.reachablePaths, (p) => p.confidence),
+      byReachability: tally(result.reachablePaths, (p) => p.reachability)
+    },
+    reachablePaths: result.reachablePaths.slice(0, cap),
+    uncertainty: result.uncertainty,
+    truncated: result.reachablePaths.length > cap,
+    digestNote: `llm digest (ADR 0034 S1): reachable-paths sample capped at ${cap}; counts carry the true total + per-confidence/per-reachability breakdowns; full paths in .code-cartographer-mcp/context-map.json. \`apparently_unreachable\` is a static candidate observation, never a confirmed dead-code claim.`
+  };
+}
+
 export function formatReachability(result: ReachabilityResult, mode: OutputMode): string {
   const human = [
     `# Reachability: ${result.subject} \`${result.status}\``,
@@ -296,10 +329,15 @@ export function formatReachability(result: ReachabilityResult, mode: OutputMode)
     CODEBASE_ONLY_BANNER,
     "",
     result.summary,
-    ...section("Reachable paths", result.reachablePaths.map(reachLine)),
+    ...section(
+      `Reachable paths${capNote(REACHABLE_PATHS_CAP, result.reachablePaths.length)}`,
+      result.reachablePaths.slice(0, REACHABLE_PATHS_CAP).map(reachLine)
+    ),
     ...section("Uncertainty", uncertaintyLines(result.uncertainty))
   ].join("\n");
-  return byMode(human, result, mode);
+  // Digest the llm payload (ADR 0034 S1) so output does not scale with path count — cap the
+  // sample, keep the true total + per-confidence/per-reachability breakdowns.
+  return byMode(human, reachabilityDigest(result), mode);
 }
 
 export function formatDuplicateBehavior(result: DuplicateBehaviorResult, mode: OutputMode): string {
