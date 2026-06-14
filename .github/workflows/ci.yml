@@ -9,14 +9,20 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22" # >= 22.5 for the built-in node:sqlite graph index (ADR 0023)
           cache: npm
 
-      - run: npm ci
+      # `npm ci` requires a platform-complete lockfile, but package-lock.json is generated on the
+      # Windows-primary dev toolchain and omits optional transitive deps that Linux needs (e.g.
+      # @emnapi/core / @emnapi/runtime via web-tree-sitter's wasm runtime) — npm does not produce
+      # cross-platform-complete locks. `npm install` reconciles those optional deps at install time
+      # while still honoring every locked version present (the lock stays authoritative on Windows,
+      # where `npm ci` is used). See ci.yml history / PR #19.
+      - run: npm install --no-audit --no-fund
 
       - name: Typecheck
         run: npm run typecheck
