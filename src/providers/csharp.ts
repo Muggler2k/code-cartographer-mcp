@@ -11,7 +11,7 @@
 // into a runnable form, executes target code, or loads target assemblies.
 
 import { spawn, spawnSync } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { promises as fs, type Dirent } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,33 +63,78 @@ export function dotnetAvailable(): boolean {
 
 let buildPromise: Promise<string | null> | null = null;
 
+/** Newest built `RoslynAnalyzer.dll` under `bin/Release/<tfm>`, with its mtime; null if none. */
+async function findAnalyzerDll(): Promise<{ dll: string; mtimeMs: number } | null> {
+  const releaseDir = path.join(ANALYZER_DIR, "bin", "Release");
+  let best: { dll: string; mtimeMs: number } | null = null;
+  try {
+    for (const tfm of await fs.readdir(releaseDir)) {
+      const dll = path.join(releaseDir, tfm, "RoslynAnalyzer.dll");
+      try {
+        const st = await fs.stat(dll);
+        if (!best || st.mtimeMs > best.mtimeMs) best = { dll, mtimeMs: st.mtimeMs };
+      } catch {
+        /* try the next target-framework dir */
+      }
+    }
+  } catch {
+    /* no Release dir yet */
+  }
+  return best;
+}
+
+/** mtime of the newest sidecar build input (.cs/.csproj/…) under `dir`, excluding bin/obj. */
+async function newestSourceMtime(dir: string): Promise<number> {
+  let newest = 0;
+  let entries: Dirent<string>[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return newest;
+  }
+  for (const entry of entries) {
+    if (entry.name === "bin" || entry.name === "obj") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      newest = Math.max(newest, await newestSourceMtime(full));
+      // Build inputs: sources + project/MSBuild files + restore config. (A `Directory.Build.*` ABOVE
+      // ANALYZER_DIR isn't tracked here; none exists, and the cold `dotnet build` would still pick
+      // up such a change once any tracked input also changes.)
+    } else if (/\.(cs|csproj|props|targets)$/i.test(entry.name) || /^(global\.json|nuget\.config)$/i.test(entry.name)) {
+      try {
+        newest = Math.max(newest, (await fs.stat(full)).mtimeMs);
+      } catch {
+        /* ignore an unreadable source file */
+      }
+    }
+  }
+  return newest;
+}
+
 /** Build the sidecar once per process; resolve to the dll path, or null when unusable. */
 function ensureAnalyzerBuilt(): Promise<string | null> {
   if (!buildPromise) {
     buildPromise = (async () => {
-      // Concurrent test workers each run their own process-level build; MSBuild file locks
-      // can transiently fail one of them, so a failed build gets one delayed retry.
+      // Reuse an already-built dll only when it is STRICTLY newer than every build input. A CI
+      // pre-build step (whose dll is newer than the freshly-checked-out sources) then lets every
+      // parallel vitest worker SKIP the build, so they never race `dotnet build` on shared bin/obj
+      // MSBuild locks — the cause of intermittent C#/VB sidecar test failures. Strict `>` biases
+      // toward a rebuild on an mtime tie (a stale dll is never served); the conservative cost is a
+      // rare extra build, never a wrong result. A cold local run with no pre-build still has each
+      // worker build (with the retry below) — that race predates this and is unaffected.
+      const cached = await findAnalyzerDll();
+      if (cached && cached.mtimeMs > (await newestSourceMtime(ANALYZER_DIR))) {
+        return cached.dll;
+      }
+      // No fresh dll: build, with one delayed retry for the cold-start race that remains when
+      // several workers reach this point at once (MSBuild file locks can transiently fail one).
       let build = await run("dotnet", ["build", "-c", "Release", "--nologo", "-v", "q"], ANALYZER_DIR, BUILD_TIMEOUT_MS);
       if (build.code !== 0) {
         await new Promise((r) => setTimeout(r, 2_000));
         build = await run("dotnet", ["build", "-c", "Release", "--nologo", "-v", "q"], ANALYZER_DIR, BUILD_TIMEOUT_MS);
       }
       if (build.code !== 0) return null;
-      const releaseDir = path.join(ANALYZER_DIR, "bin", "Release");
-      try {
-        for (const tfm of await fs.readdir(releaseDir)) {
-          const dll = path.join(releaseDir, tfm, "RoslynAnalyzer.dll");
-          try {
-            await fs.access(dll);
-            return dll;
-          } catch {
-            /* try the next target-framework dir */
-          }
-        }
-      } catch {
-        /* fall through */
-      }
-      return null;
+      return (await findAnalyzerDll())?.dll ?? null;
     })();
   }
   return buildPromise;
