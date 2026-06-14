@@ -28,7 +28,7 @@
       "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
     },
     "cpp-small": {
-      "structural": { "files": 3, "nodes": 9, "edges": 6, "summaryChars": 3209, "summaryCharsTolerancePct": 20 },
+      "structural": { "files": 3, "nodes": 12, "edges": 7, "summaryChars": 3212, "summaryCharsTolerancePct": 20 },
       "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
     },
     "csharp-small": {
