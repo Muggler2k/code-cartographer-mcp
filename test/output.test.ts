@@ -20,6 +20,7 @@ import type { ArchitectureVisualizationResult, CallStackVisualizationResult } fr
 import type { MapDiffResult } from "../src/mapDiff.js";
 import type { ScopePreview } from "../src/scope.js";
 import {
+  DIGEST_SAMPLE_CAP,
   formatArchitectureDrift,
   formatArchitectureVisualization,
   formatCallStack,
@@ -336,14 +337,14 @@ describe("context-summary llm digest is bounded (ADR 0034 S1)", () => {
     return map;
   }
 
-  it("caps every sample list at 20 while keeping true totals and the codebase-only boundary", () => {
+  it("caps every sample list at the digest cap while keeping true totals and the codebase-only boundary", () => {
     const parsed = JSON.parse(formatContextSummary(bigMap(), "llm_readable"));
     expect(parsed.analysisBoundary).toBe("codebase_only");
     expect(parsed.meta.codebaseOnlyBoundary).toBe(true);
-    expect(parsed.summary.ownershipSignals).toHaveLength(20);
-    expect(parsed.summary.modules).toHaveLength(20);
-    expect(parsed.summary.entryPoints).toHaveLength(20);
-    expect(parsed.summary.importantFiles).toHaveLength(20);
+    expect(parsed.summary.ownershipSignals).toHaveLength(DIGEST_SAMPLE_CAP);
+    expect(parsed.summary.modules).toHaveLength(DIGEST_SAMPLE_CAP);
+    expect(parsed.summary.entryPoints).toHaveLength(DIGEST_SAMPLE_CAP);
+    expect(parsed.summary.importantFiles).toHaveLength(DIGEST_SAMPLE_CAP);
     expect(parsed.summary.counts).toMatchObject({ ownershipSignals: 5000, modules: 500, entryPoints: 500, importantFiles: 500 });
     expect(parsed.summary.truncated).toBe(true);
     // modules collapse to fileCount — the full files[] never ships in the digest.
@@ -369,6 +370,36 @@ describe("context-summary llm digest is bounded (ADR 0034 S1)", () => {
     expect(parsed.summary.counts).toBeDefined();
     expect(parsed.analysisBoundary).toBe("codebase_only");
     expect(parsed.meta.codebaseOnlyBoundary).toBe(true);
+  });
+
+  it("bounds the recorded scope's dirs/patterns lists with true totals (no unbounded excluded)", () => {
+    // A monorepo with hundreds of excluded dirs would otherwise re-inflate the summary digest the
+    // sample cap was meant to bound. boundedScope caps dirs/patterns; counts carry the true totals.
+    const map = testContextMap({ files: [testFileEntry("src/index.ts")] });
+    map.summary = {
+      ...map.summary,
+      excluded: {
+        source: "gitignore",
+        languages: [],
+        excludeDirs: [],
+        patterns: Array.from({ length: 50 }, (_, i) => `pattern${i}/`),
+        scopeHash: "scope-hash",
+        dirs: Array.from({ length: 200 }, (_, i) => `vendored/dir${i}`),
+        fileCount: 0
+      }
+    };
+    const parsed = JSON.parse(formatContextSummary(map, "llm_readable"));
+    expect(parsed.analysisBoundary).toBe("codebase_only");
+    expect(parsed.meta.codebaseOnlyBoundary).toBe(true);
+    expect(parsed.summary.excluded.dirs).toHaveLength(DIGEST_SAMPLE_CAP);
+    expect(parsed.summary.excluded.patterns).toHaveLength(DIGEST_SAMPLE_CAP);
+    // True totals live in the one shared summary `counts` (flat, like every other digest list).
+    expect(parsed.summary.counts.excludedDirs).toBe(200);
+    expect(parsed.summary.counts.excludedPatterns).toBe(50);
+    // The summary-level truncated flag reflects the bounded scope, not just the map-content lists.
+    expect(parsed.summary.truncated).toBe(true);
+    // Config-sized re-walk inputs pass through unchanged.
+    expect(parsed.summary.excluded.scopeHash).toBe("scope-hash");
   });
 });
 
@@ -410,8 +441,8 @@ describe("call-stack llm digest is bounded (ADR 0034 S1)", () => {
     expect(parsed.entryPoint).toBe("main");
     expect(parsed.rootId).toBe("src/index.ts#main");
     expect(parsed.maxDepthReached).toBe(true);
-    expect(parsed.nodes.length).toBeLessThanOrEqual(20);
-    expect(parsed.edges.length).toBeLessThanOrEqual(20);
+    expect(parsed.nodes.length).toBeLessThanOrEqual(DIGEST_SAMPLE_CAP);
+    expect(parsed.edges.length).toBeLessThanOrEqual(DIGEST_SAMPLE_CAP);
     expect(parsed.counts.nodes).toBe(500);
     expect(parsed.counts.edges).toBe(500);
     // Unresolved edges stay disclosed via the breakdown even though they fall past the sample.
@@ -439,7 +470,7 @@ describe("call-stack llm digest is bounded (ADR 0034 S1)", () => {
   it("human_readable keeps the true edge total visible even when the Edges section is capped", () => {
     const out = formatCallStack(bigCallStack(), "human_readable");
     expect(out).toContain("**Edges:** 500"); // Root line carries the true total
-    expect(out).toContain("showing 20 of 500"); // capNote discloses the cap
+    expect(out).toContain(`showing ${DIGEST_SAMPLE_CAP} of 500`); // capNote discloses the cap
   });
 });
 
@@ -463,7 +494,7 @@ describe("architecture-drift llm digest is bounded (ADR 0034 S1)", () => {
   it("caps the findings sample but keeps the true total, confidence breakdown, boundary, and uncertainty", () => {
     const parsed = JSON.parse(formatArchitectureDrift(bigDrift(), "llm_readable"));
     expect(parsed.analysisBoundary).toBe("codebase_only");
-    expect(parsed.driftFindings.length).toBeLessThanOrEqual(20);
+    expect(parsed.driftFindings.length).toBeLessThanOrEqual(DIGEST_SAMPLE_CAP);
     expect(parsed.counts.driftFindings).toBe(300);
     expect(parsed.counts.byConfidence.candidate).toBe(100);
     expect(parsed.counts.byConfidence.unclear).toBe(200);
@@ -488,7 +519,7 @@ describe("architecture-drift llm digest is bounded (ADR 0034 S1)", () => {
 
   it("human_readable keeps the true finding total visible even when the section is capped", () => {
     const out = formatArchitectureDrift(bigDrift(), "human_readable");
-    expect(out).toContain("showing 20 of 300");
+    expect(out).toContain(`showing ${DIGEST_SAMPLE_CAP} of 300`);
   });
 });
 
@@ -527,7 +558,7 @@ describe("reachability llm digest is bounded (ADR 0034 S1)", () => {
     expect(parsed.analysisBoundary).toBe("codebase_only");
     expect(parsed.subject).toBe("target");
     expect(parsed.status).toBe("likely");
-    expect(parsed.reachablePaths.length).toBeLessThanOrEqual(20);
+    expect(parsed.reachablePaths.length).toBeLessThanOrEqual(DIGEST_SAMPLE_CAP);
     expect(parsed.counts.reachablePaths).toBe(400);
     expect(parsed.counts.byConfidence.candidate).toBe(100);
     // The reachability distribution stays visible even though all 100 unreachable paths are sampled out.
@@ -556,6 +587,6 @@ describe("reachability llm digest is bounded (ADR 0034 S1)", () => {
 
   it("human_readable keeps the true path total visible even when the section is capped", () => {
     const out = formatReachability(bigReach(), "human_readable");
-    expect(out).toContain("showing 20 of 400");
+    expect(out).toContain(`showing ${DIGEST_SAMPLE_CAP} of 400`);
   });
 });

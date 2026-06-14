@@ -81,8 +81,15 @@ function capNote(shown: number, total: number): string {
  * graph / finding count (the worst measured ~536k tokens). Each digest caps its sample lists at
  * this many; `counts` carry the true totals + per-field breakdowns and the persisted map keeps
  * everything. One shared value so the tools cannot drift apart.
+ *
+ * Set to 8 (ADR 0034 S1, second pass): cap 20 left `get_context_summary`/`init_codebase`
+ * (~3.5k), `detect_architecture_drift` (~4k), and `map_call_stack` (~2.4k) over the ~2k per-tool
+ * agent-context budget. 8 representative samples + the true `counts`/totals carry the orientation
+ * an agent needs; the persisted map keeps all. The bound is on item COUNT, not bytes — for typical
+ * item widths every digest lands well under budget (measured 1.1k–1.8k), but a handful of unusually
+ * verbose items (e.g. a finding with very long evidence) can still run larger.
  */
-const DIGEST_SAMPLE_CAP = 20;
+export const DIGEST_SAMPLE_CAP = 8;
 
 /** A bounded list projection (ADR 0034 S1): a head `sample`, the true `total`, and a `truncated` flag. */
 function cappedSample<T>(items: T[], cap = DIGEST_SAMPLE_CAP): { sample: T[]; total: number; truncated: boolean } {
@@ -109,9 +116,13 @@ function cappedSection<T>(title: string, items: T[], render: (item: T) => string
 
 /**
  * A bounded projection of `summary` for `llm_readable` (ADR 0034 S1): counts + true totals +
- * capped samples, with each module's `files[]` reduced to `fileCount`. The codebase-only
- * boundary is intentionally omitted from this projection — the caller ships it alongside
- * (top-level `analysisBoundary` + `meta.codebaseOnlyBoundary`), so it is never duplicated here.
+ * capped samples, with each module's `files[]` reduced to `fileCount`. Every list that scales with
+ * the repo — including the recorded scope's `dirs`/`patterns` (a monorepo with hundreds of excluded
+ * dirs would otherwise re-inflate the very digest the cap bounds) — runs through the same
+ * `cappedSample` path, feeding one shared `counts`/`truncated`; the scope's config-sized re-walk
+ * inputs pass through unchanged. The codebase-only boundary is intentionally omitted from this
+ * projection — the caller ships it alongside (top-level `analysisBoundary` +
+ * `meta.codebaseOnlyBoundary`), so it is never duplicated here.
  */
 function summaryDigest(summary: StaticContextMap["summary"]): Record<string, unknown> {
   const cap = DIGEST_SAMPLE_CAP;
@@ -119,6 +130,8 @@ function summaryDigest(summary: StaticContextMap["summary"]): Record<string, unk
   const entryPoints = cappedSample(summary.entryPoints, cap);
   const modules = cappedSample(summary.modules, cap);
   const ownershipSignals = cappedSample(summary.ownershipSignals, cap);
+  const excludedDirs = cappedSample(summary.excluded.dirs, cap);
+  const excludedPatterns = cappedSample(summary.excluded.patterns, cap);
   return {
     totalFiles: summary.totalFiles,
     categories: summary.categories,
@@ -127,14 +140,30 @@ function summaryDigest(summary: StaticContextMap["summary"]): Record<string, unk
       importantFiles: importantFiles.total,
       entryPoints: entryPoints.total,
       modules: modules.total,
-      ownershipSignals: ownershipSignals.total
+      ownershipSignals: ownershipSignals.total,
+      excludedDirs: excludedDirs.total,
+      excludedPatterns: excludedPatterns.total
     },
     importantFiles: importantFiles.sample,
     entryPoints: entryPoints.sample,
     modules: modules.sample.map((m) => ({ name: m.name, root: m.root, category: m.category, fileCount: m.files.length })),
     ownershipSignals: ownershipSignals.sample,
-    excluded: summary.excluded,
-    truncated: importantFiles.truncated || entryPoints.truncated || modules.truncated || ownershipSignals.truncated,
+    excluded: {
+      source: summary.excluded.source,
+      languages: summary.excluded.languages,
+      excludeDirs: summary.excluded.excludeDirs,
+      scopeHash: summary.excluded.scopeHash,
+      fileCount: summary.excluded.fileCount,
+      dirs: excludedDirs.sample,
+      patterns: excludedPatterns.sample
+    },
+    truncated:
+      importantFiles.truncated ||
+      entryPoints.truncated ||
+      modules.truncated ||
+      ownershipSignals.truncated ||
+      excludedDirs.truncated ||
+      excludedPatterns.truncated,
     digestNote: digestNote(`list samples capped at ${cap}; counts carry true totals; full data in .code-cartographer-mcp/context-map.json`)
   };
 }
