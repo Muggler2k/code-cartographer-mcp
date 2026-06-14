@@ -16,6 +16,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { selectSeeds, type Seeds } from "./seeds.js";
 
 // Provisional flag threshold — surfaces "an agent would feel this in its context budget".
 // Not the acceptance SLO; ADR 0034 S1 sets the real per-tool ceilings.
@@ -101,18 +102,12 @@ async function callTool(
   }
 }
 
-const CODE_EXT = /\.(ts|tsx|js|jsx|cs|vb|py|go|java|rs|rb|cpp|cc|c|h)$/i;
-// Vendored / generated / static-asset paths: real but not application code. Rooting the
-// symbol/path tools at a vendored admin-template JS (e.g. wwwroot/.../jquery.vmap.js) makes
-// those tools' measurements unrepresentative, so the seed picker skips these.
-const VENDORED = /(^|\/)(node_modules|bower_components|vendor|third_party|wwwroot|dist|build|out|assets|public|packages)\/|[.-]min\.(js|css)$/i;
-
 /**
  * After init, derive real seeds from the persisted map so the symbol/path tools exercise
- * actual code. Prefer the highest-out-degree CODE node (a real fan-out hub gives map_call_stack /
- * find_path genuine depth) over doc/markdown nodes, and pick a distinct callee for `to`.
+ * actual code. The selection itself (hub picking, vendored preference) lives in the pure,
+ * unit-tested `selectSeeds` (eval/seeds.ts); this wrapper only reads the persisted map.
  */
-function deriveSeeds(): { symbol: string; to: string; file: string } {
+function deriveSeeds(): Seeds {
   if (!existsSync(mapPath)) {
     return { symbol: "main", to: "main", file: "src" };
   }
@@ -120,24 +115,7 @@ function deriveSeeds(): { symbol: string; to: string; file: string } {
     callGraph?: { nodes?: Array<{ id: string; path: string }>; edges?: Array<{ from: string; to: string }> };
     files?: Array<{ path: string }>;
   };
-  const nodes = map.callGraph?.nodes ?? [];
-  const edges = map.callGraph?.edges ?? [];
-  const pathOf = new Map(nodes.map((n) => [n.id, n.path]));
-  const isAppCode = (id: string): boolean => {
-    const p = pathOf.get(id) ?? "";
-    return CODE_EXT.test(p) && !VENDORED.test(p);
-  };
-
-  // Out-degree over application-code, non-self edges → the most connected real hub (vendored skipped).
-  const outDegree = new Map<string, number>();
-  for (const e of edges) {
-    if (e.from !== e.to && isAppCode(e.from)) outDegree.set(e.from, (outDegree.get(e.from) ?? 0) + 1);
-  }
-  const hub = [...outDegree.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const symbol = hub ?? nodes.find((n) => isAppCode(n.id))?.id ?? nodes[0]?.id ?? "main";
-  const to = edges.find((e) => e.from === symbol && e.to !== symbol)?.to ?? symbol;
-  const file = pathOf.get(symbol) ?? map.files?.find((f) => CODE_EXT.test(f.path) && !VENDORED.test(f.path))?.path ?? "src";
-  return { symbol, to, file };
+  return selectSeeds(map.callGraph?.nodes ?? [], map.callGraph?.edges ?? [], map.files ?? []);
 }
 
 function pad(s: string, n: number): string {
