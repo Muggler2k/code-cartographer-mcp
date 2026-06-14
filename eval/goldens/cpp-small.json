@@ -1,11 +1,14 @@
 {
-  "_comment": "Epic N baseline (proposed ADR 0035): the C++ tree-sitter tier as it stands TODAY — likely ceiling, intra-file call resolution only. The cross-file #include edge (total -> shared_util) is honestly `unresolved` and the resolved edge to util.cpp#shared_util is FORBIDDEN; ADR 0035 N-S2 (header-aware resolution) will flip both, updating this golden consciously. The private non-static `value()` is deliberately omitted from `exported` — the coarse `!static` heuristic over-reports it as exported; a later stage may refine access-specifier grading.",
+  "_comment": "Epic N (ADR 0035). N-S1 LANDED: C++ methods are qualified by their enclosing class (`Calculator::run` is distinct from `Widget::run`) and the intra-file resolver is scope-aware (a bare `tick()` inside `Widget::run` resolves to `Widget::tick`, not Calculator's). Ceiling stays `likely` (tree-sitter, no type system). The cross-file #include edge (total -> shared_util) is still honestly `unresolved`, with the resolved edge to util.cpp#shared_util FORBIDDEN — N-S2 (header-aware resolution) will flip both, updating this golden consciously. The private non-static `value()` is omitted from `exported` — the coarse `!static` heuristic over-reports it as exported; a later stage may refine access-specifier grading.",
   "symbols": {
     "required": [
       "calc.cpp#Calculator",
-      "calc.cpp#run",
-      "calc.cpp#step",
-      "calc.cpp#value",
+      "calc.cpp#Calculator::run",
+      "calc.cpp#Calculator::step",
+      "calc.cpp#Calculator::value",
+      "calc.cpp#Widget",
+      "calc.cpp#Widget::run",
+      "calc.cpp#Widget::tick",
       "calc.cpp#helper",
       "calc.cpp#total",
       "calc.cpp#main",
@@ -17,22 +20,25 @@
   "exported": {
     "calc.cpp#helper": false,
     "util.cpp#helper_internal": false,
-    "calc.cpp#run": true,
+    "calc.cpp#Calculator::run": true,
+    "calc.cpp#Widget::run": true,
     "calc.cpp#total": true,
     "calc.cpp#main": true,
     "util.cpp#shared_util": true
   },
   "edges": {
     "required": [
-      { "from": "calc.cpp#run", "to": "calc.cpp#step", "callKind": "direct", "confidence": "likely" },
-      { "from": "calc.cpp#step", "to": "calc.cpp#value", "callKind": "direct", "confidence": "likely" },
+      { "from": "calc.cpp#Calculator::run", "to": "calc.cpp#Calculator::step", "callKind": "direct", "confidence": "likely" },
+      { "from": "calc.cpp#Calculator::step", "to": "calc.cpp#Calculator::value", "callKind": "direct", "confidence": "likely" },
+      { "from": "calc.cpp#Widget::run", "to": "calc.cpp#Widget::tick", "callKind": "direct", "confidence": "likely" },
       { "from": "calc.cpp#total", "to": "calc.cpp#helper", "callKind": "direct", "confidence": "likely" },
       { "from": "calc.cpp#main", "to": "calc.cpp#total", "callKind": "direct", "confidence": "likely" },
       { "from": "util.cpp#shared_util", "to": "util.cpp#helper_internal", "callKind": "direct", "confidence": "likely" },
       { "from": "calc.cpp#total", "to": "unresolved#shared_util", "callKind": "unresolved", "confidence": "unresolved" }
     ],
     "forbidden": [
-      { "from": "calc.cpp#total", "to": "util.cpp#shared_util" }
+      { "from": "calc.cpp#total", "to": "util.cpp#shared_util" },
+      { "from": "calc.cpp#Widget::run", "to": "calc.cpp#Calculator::step" }
     ]
   },
   "reachability": [

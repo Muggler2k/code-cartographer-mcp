@@ -8,6 +8,12 @@ private:
   int value() { return 7; }
 };
 
+class Widget {
+public:
+  int run() { return tick(); }              // Widget::run is DISTINCT from Calculator::run (N-S1)
+  int tick() { return 5; }
+};
+
 static int helper() { return 1; }          // static -> internal (exported false)
 
 int total() {

@@ -267,15 +267,29 @@ describe("treeSitterProvider.analyze (Epic deepen, ADR 0021)", () => {
     expect(ex.callEdges.find((e) => e.to === "Svc.cs#Helper")?.callKind).toBe("direct");
   });
 
-  it("parses C++ declarations (nested function name) + same-file calls", async () => {
+  it("parses C++ declarations + same-file calls; methods are qualified by class (N-S1, ADR 0035)", async () => {
     const ex = await treeSitterProvider.analyze(
       providerInput({ "main.cpp": "class Server {\npublic:\n  void start() { listen(); }\n};\nvoid listen() {}\nint main() { return 0; }\n" })
     );
     const names = ex.declarations.map((d) => d.symbol);
     expect(names).toContain("Server");
-    expect(names).toContain("start");
-    expect(names).toContain("listen");
-    expect(ex.callEdges.find((e) => e.to === "main.cpp#listen")?.callKind).toBe("direct");
+    expect(names).toContain("Server::start"); // N-S1: the method is qualified by its class
+    expect(names).not.toContain("start"); // the bare short name is no longer a node
+    expect(names).toContain("listen"); // a free function stays unqualified
+    // The method's call to a free function still resolves (bare-name path, unchanged).
+    const edge = ex.callEdges.find((e) => e.to === "main.cpp#listen");
+    expect(edge?.callKind).toBe("direct");
+    expect(edge?.from).toBe("main.cpp#Server::start"); // qualified `from`, matching the node id
+  });
+
+  it("C++ unqualified call inside a method resolves to the member, not a same-named free function (N-S1)", async () => {
+    // C++ unqualified name lookup: a class member hides a namespace-scope function of the same name.
+    const ex = await treeSitterProvider.analyze(
+      providerInput({ "box.cpp": "class Box {\npublic:\n  int run() { return size(); }\n  int size() { return 3; }\n};\nint size() { return 99; }\n" })
+    );
+    const edge = ex.callEdges.find((e) => e.from === "box.cpp#Box::run");
+    expect(edge?.to).toBe("box.cpp#Box::size"); // the member, NOT box.cpp#size (the free function)
+    expect(edge?.callKind).toBe("direct");
   });
 
   it("resolves Rust cross-file calls via use-imports and module paths", async () => {

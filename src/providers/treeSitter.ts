@@ -34,6 +34,14 @@ interface LangConfig {
   callNodeTypes: string[];
   calleeField: string;
   exported: (name: string, nodeText: string) => boolean;
+  /**
+   * C++ (ADR 0035 N-S1): qualify a method/type-member declaration by its enclosing class/struct as
+   * `Type::name`, so same-named methods on different types get distinct nodes. The intra-file
+   * resolver becomes scope-aware in lockstep (a bare call from inside `Type` resolves to
+   * `Type::name`). Off (undefined) for every other language, so their bare-name resolution is
+   * untouched. Confidence is unaffected — the tree-sitter ceiling stays `likely`.
+   */
+  qualifyByType?: boolean;
 }
 
 const PYTHON: LangConfig = {
@@ -135,7 +143,8 @@ const CPP: LangConfig = {
   ],
   callNodeTypes: ["call_expression"],
   calleeField: "function",
-  exported: (_name, nodeText) => !/^\s*static\b/.test(nodeText)
+  exported: (_name, nodeText) => !/^\s*static\b/.test(nodeText),
+  qualifyByType: true
 };
 
 const CONFIGS: Record<string, LangConfig> = {
@@ -193,6 +202,33 @@ const declKind = (spec: DeclSpec, node: SyntaxNode): OwnershipSignalKind =>
 const declName = (spec: DeclSpec, node: SyntaxNode): string | undefined =>
   spec.nameFn ? spec.nameFn(node) : node.childForFieldName(spec.nameField ?? "name")?.text;
 
+/**
+ * The declaration's name, kind, and the enclosing type for its descendants (ADR 0035 N-S1). For a
+ * `qualifyByType` language (C++) a method nested in a class/struct is qualified `Type::name`, and a
+ * type declaration becomes the enclosing type for the members under it. For every other language
+ * this is a pass-through of `declName` (no qualification), so their resolution is unchanged. Used
+ * by BOTH the declaration pass and the edge pass so a method's node id and its edge endpoints agree.
+ *
+ * Known N-S1 limitations (both UNDER-resolve honestly — `unresolved`, never a wrong edge — and are
+ * addressed by later stages): nested classes qualify one level only; an out-of-line method BODY
+ * (`int C::run(){…}` at namespace scope) isn't scope-aware, so its bare member calls stay
+ * `unresolved` until N-S2; namespaces are deferred to N-S3.
+ */
+function declScope(
+  config: LangConfig,
+  spec: DeclSpec,
+  node: SyntaxNode,
+  enclosingType: string | null
+): { name: string | undefined; kind: OwnershipSignalKind; childType: string | null } {
+  const kind = declKind(spec, node);
+  let name = declName(spec, node);
+  if (name && config.qualifyByType && enclosingType && kind === "function" && !name.includes("::")) {
+    name = `${enclosingType}::${name}`;
+  }
+  const childType = config.qualifyByType && kind === "class" && name ? name : enclosingType;
+  return { name, kind, childType };
+}
+
 /** C++: the function name is nested in function_definition → (ptr/ref) → function_declarator → declarator. */
 function cppFunctionName(node: SyntaxNode): string | undefined {
   let decl = node.childForFieldName("declarator");
@@ -201,7 +237,9 @@ function cppFunctionName(node: SyntaxNode): string | undefined {
   }
   if (decl?.type === "function_declarator") {
     const inner = decl.childForFieldName("declarator");
-    if (inner?.type === "qualified_identifier") return inner.text.split("::").pop();
+    // Out-of-line definition `Type::method` → keep the qualifier (ADR 0035 N-S1), so it matches the
+    // in-class form `Type::method` that visitDecls produces. Whitespace is stripped for stability.
+    if (inner?.type === "qualified_identifier") return inner.text.replace(/\s+/g, "");
     return inner?.text;
   }
   return undefined;
@@ -444,16 +482,17 @@ export const treeSitterProvider: LanguageProvider = {
 
       const declNames = new Set<string>();
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
-      const visitDecls = (node: SyntaxNode): void => {
+      const visitDecls = (node: SyntaxNode, enclosingType: string | null): void => {
         const spec = declSpecFor(node);
+        let childType = enclosingType;
         if (spec) {
-          const name = declName(spec, node);
+          const { name, kind, childType: ct } = declScope(config, spec, node, enclosingType);
+          childType = ct;
           if (name) {
             const id = `${file.path}#${name}`;
             declNames.add(name);
             if (!seenNodeIds.has(id)) {
               seenNodeIds.add(id);
-              const kind = declKind(spec, node);
               declarations.push({ id, symbol: name, path: file.path, kind, confidence: "confirmed" });
               const exported = config.exported(name, node.text.slice(0, 120));
               ownershipSignals.push({
@@ -469,10 +508,10 @@ export const treeSitterProvider: LanguageProvider = {
         }
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
-          if (child) visitDecls(child);
+          if (child) visitDecls(child, childType);
         }
       };
-      visitDecls(root);
+      visitDecls(root, null);
 
       declsByFile.set(file.path, declNames);
       if (config.resolution === "package") {
@@ -510,9 +549,23 @@ export const treeSitterProvider: LanguageProvider = {
     }
 
     // ---- Phase 2: resolve and emit call edges ----
-    const resolveCallee = (parse: FileParse, parsed: { name: string; qualifier: string | null; scoped: boolean }): { to: string; kind: CallEdgeKind; conf: Confidence } => {
+    const resolveCallee = (
+      parse: FileParse,
+      parsed: { name: string; qualifier: string | null; scoped: boolean },
+      callingType: string | null
+    ): { to: string; kind: CallEdgeKind; conf: Confidence } => {
       const { name, qualifier, scoped } = parsed;
       const self = parse.file.path;
+      // C++ N-S1 (ADR 0035): an unqualified call from inside `Type` resolves to that type's
+      // `Type::name` member FIRST — a class member hides a namespace-scope function of the same name
+      // (C++ unqualified name lookup). Additive + qualifyByType-gated, so every other language's
+      // bare-name resolution below is untouched (their `callingType` machinery never qualifies).
+      if (parse.config.qualifyByType && !qualifier && callingType) {
+        const qualified = `${callingType}::${name}`;
+        if (parse.declNames.has(qualified)) {
+          return { to: `${self}#${qualified}`, kind: "direct", conf: "likely" };
+        }
+      }
       if (!qualifier && parse.declNames.has(name)) {
         return { to: `${self}#${name}`, kind: "direct", conf: "likely" };
       }
@@ -562,18 +615,22 @@ export const treeSitterProvider: LanguageProvider = {
     for (const parse of parses) {
       const { config, file } = parse;
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
-      const visitEdges = (node: SyntaxNode, enclosing: string | null): void => {
+      const visitEdges = (node: SyntaxNode, enclosing: string | null, enclosingType: string | null): void => {
         let nextEnclosing = enclosing;
+        let childType = enclosingType;
         const spec = declSpecFor(node);
         if (spec) {
-          const name = declName(spec, node);
+          // Same qualification as the declaration pass, so a method's edge endpoints match its node.
+          const { name, childType: ct } = declScope(config, spec, node, enclosingType);
+          childType = ct;
           if (name) nextEnclosing = `${file.path}#${name}`;
         }
         if (config.callNodeTypes.includes(node.type) && nextEnclosing) {
           const callee = node.childForFieldName(config.calleeField);
           const parsed = callee ? splitCallee(callee.text) : null;
           if (parsed) {
-            const { to, kind, conf } = resolveCallee(parse, parsed);
+            // The call's enclosing TYPE (C++ scope-aware resolution); null outside a class.
+            const { to, kind, conf } = resolveCallee(parse, parsed, enclosingType);
             const key = `${nextEnclosing}|${to}|${kind}`;
             if (!seenEdgeKeys.has(key)) {
               seenEdgeKeys.add(key);
@@ -594,10 +651,10 @@ export const treeSitterProvider: LanguageProvider = {
         }
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
-          if (child) visitEdges(child, nextEnclosing);
+          if (child) visitEdges(child, nextEnclosing, childType);
         }
       };
-      visitEdges(parse.root, null);
+      visitEdges(parse.root, null, null);
     }
 
     return { declarations, ownershipSignals, entryPointHints, callEdges };
