@@ -87,7 +87,31 @@ function sha256Hex(data: string | Buffer): string {
 }
 
 /**
+ * Metadata fingerprint for a file whose content we cannot read (over-cap, vanished, or denied).
+ * The preimage is `path\0size` — the long-standing `over size cap` form — so unifying over-cap and
+ * unreadable here never shifts the persisted `sha256` (a `mapHash` input) for existing over-cap
+ * entries; the reason that distinguishes them rides in the `analysisReason` record field, not the
+ * hash. (over-cap requires size > maxBytes and unreadable-on-read requires size ≤ maxBytes, so the
+ * two never share a size — hence never a preimage — for the same path.)
+ */
+function metadataHash(relPath: string, sizeBytes: number, mtimeMs: number, reason: AnalysisReason): FileHash {
+  return {
+    sizeBytes,
+    mtimeMs,
+    sha256: sha256Hex(`${relPath}\0${sizeBytes}`),
+    hashScope: "metadata",
+    analyzable: false,
+    analysisReason: reason
+  };
+}
+
+/**
  * Hash a single file under the large-file/binary policy (Decision 0010):
+ * - unreadable (stat/read fails — vanished between walk and hash, permission denied, special file)
+ *   → metadata hash, `analyzable: false`, "unreadable". Degrade, never throw (ADR 0034 S1): a single
+ *   bad file must not abort the whole map. Coverage stays explicit via the disclosed reason. (A file
+ *   whose permission is restored with no size/mtime change is re-read only at the next explicit
+ *   re-init — the cheap staleness fingerprint is mtime-based, Decision 0011.)
  * - over `maxBytes` → metadata hash of `path+size`, `analyzable: false`, "over size cap"
  *   (size precedence: a large binary is still "over size cap", never read).
  * - binary (NUL in the sniff window) → full content hash, `analyzable: false`, "binary: null byte".
@@ -99,22 +123,28 @@ export async function hashFile(
   maxBytes: number = LARGE_FILE_THRESHOLD_BYTES
 ): Promise<FileHash> {
   const absolute = path.join(repositoryRoot, relPath);
-  const stat = await fs.stat(absolute);
-  const sizeBytes = stat.size;
-  const mtimeMs = stat.mtimeMs;
 
-  if (sizeBytes > maxBytes) {
-    return {
-      sizeBytes,
-      mtimeMs,
-      sha256: sha256Hex(`${relPath}\0${sizeBytes}`),
-      hashScope: "metadata",
-      analyzable: false,
-      analysisReason: "over size cap" satisfies AnalysisReason
-    };
+  let sizeBytes: number;
+  let mtimeMs: number;
+  try {
+    const stat = await fs.stat(absolute);
+    sizeBytes = stat.size;
+    mtimeMs = stat.mtimeMs;
+  } catch {
+    return metadataHash(relPath, 0, 0, "unreadable");
   }
 
-  const content = await fs.readFile(absolute);
+  if (sizeBytes > maxBytes) {
+    return metadataHash(relPath, sizeBytes, mtimeMs, "over size cap");
+  }
+
+  let content: Buffer;
+  try {
+    content = await fs.readFile(absolute);
+  } catch {
+    return metadataHash(relPath, sizeBytes, mtimeMs, "unreadable");
+  }
+
   const isBinary = content.subarray(0, BINARY_SNIFF_BYTES).includes(0x00);
   return {
     sizeBytes,

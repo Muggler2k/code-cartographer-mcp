@@ -134,7 +134,8 @@ export type HashScope = "content" | "metadata";
 export type AnalysisReason =
   | "text source"
   | "binary: null byte"
-  | "over size cap";
+  | "over size cap"
+  | "unreadable";
 
 export interface FileEntry {
   path: string;
