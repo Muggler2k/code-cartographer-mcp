@@ -58,7 +58,7 @@
       "softCeilingsMs": { "init": 120000, "indexBuild": 5000 }
     },
     "edge-cases": {
-      "structural": { "files": 9, "nodes": 21, "edges": 17, "summaryChars": 6276, "summaryCharsTolerancePct": 20 },
+      "structural": { "files": 9, "nodes": 21, "edges": 17, "summaryChars": 3468, "summaryCharsTolerancePct": 20 },
       "pathQuery": {
         "from": "deepChain.ts#a0",
         "to": "deepChain.ts#a14",
