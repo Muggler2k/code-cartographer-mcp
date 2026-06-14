@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { checkInitState, initCodebase, readContextMap } from "./contextMap.js";
 import type { OutputMode } from "./schema.js";
+import { recordToolCall } from "./telemetry.js";
 import {
   analyzeChangeImpact,
   analyzeReachability,
@@ -318,9 +319,33 @@ export function registerTools(server: McpServer): void {
     server.registerTool(
       spec.name,
       { title: spec.title, description: spec.description, inputSchema: spec.inputSchema },
-      async (args: Record<string, unknown>) => ({
-        content: [{ type: "text" as const, text: await spec.execute(args) }]
-      })
+      async (args: Record<string, unknown>) => {
+        const repositoryRoot = typeof args.repositoryRoot === "string" ? args.repositoryRoot : process.cwd();
+        const started = performance.now();
+        let ok = false;
+        let text = "";
+        try {
+          text = await spec.execute(args);
+          ok = true;
+          return { content: [{ type: "text" as const, text }] };
+        } finally {
+          // Code-content-free, dev-only telemetry (ADR 0034 S2). No-op unless CCM_TELEMETRY is set;
+          // deferred to a microtask + self-swallowing, so neither an async NOR a synchronous fault
+          // in telemetry can escape this `finally` and mask the tool's real result/error.
+          void Promise.resolve()
+            .then(() =>
+              recordToolCall(repositoryRoot, {
+                ts: new Date().toISOString(),
+                tool: spec.name,
+                ms: Math.round(performance.now() - started),
+                ok,
+                outputChars: text.length,
+                argKeys: Object.keys(args).sort()
+              })
+            )
+            .catch(() => undefined);
+        }
+      }
     );
   }
 }

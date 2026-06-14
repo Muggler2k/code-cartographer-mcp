@@ -143,7 +143,13 @@ async function main(): Promise<void> {
   console.log(`  target : ${target}`);
   console.log(`  mode   : llm_readable | budget flag : ~${BUDGET_TOKENS} tok/tool\n`);
 
-  const transport = new StdioClientTransport({ command: process.execPath, args: [distPath], cwd: serverRepo });
+  // Forward the parent env to the server (the SDK's default env is a sanitized subset) so a real
+  // client's `env` config is faithfully reproduced — e.g. CCM_TELEMETRY to exercise S2 telemetry.
+  const childEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) childEnv[k] = v;
+  }
+  const transport = new StdioClientTransport({ command: process.execPath, args: [distPath], cwd: serverRepo, env: childEnv });
   const client = new Client({ name: "dogfood-harness", version: "0.1.0" }, { capabilities: {} });
 
   const tStart = performance.now();
