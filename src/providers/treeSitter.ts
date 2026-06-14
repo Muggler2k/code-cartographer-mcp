@@ -459,6 +459,21 @@ export const treeSitterProvider: LanguageProvider = {
     const parses: FileParse[] = [];
     const declsByFile = new Map<string, Set<string>>(); // file -> declared top-level names
     const goPackages = new Map<string, Map<string, string>>(); // dir -> name -> declaring file
+    // C++ N-S2 (ADR 0035): `<dir> <name>` -> file(s) in that dir DEFINING a non-static free function
+    // `name`. A call the intra-file pass can't resolve binds to the unique SAME-DIRECTORY definition
+    // — a deliberately conservative proxy for `#include`-scoping (the dir is a rough module boundary,
+    // mirroring `goPackages`): it resolves the common same-module header/.cpp edge while staying
+    // honest across unrelated modules (a cross-dir or ambiguous name stays `unresolved`, never a
+    // false edge). Members (qualified `Type::name`) and static functions (file-local) are excluded.
+    // Limitations (deferred to a fuller #include-graph + scope-aware stage), clamped to `likely`:
+    //   UNDER-resolve — an `inline` definition in a header counts as a second def → that name stays
+    //     `unresolved`; same-file overloads collapse to one file node; cross-dir module calls.
+    //   OVER-resolve (bounded: same-dir, unique non-static name) — an anonymous-namespace function is
+    //     treated as global (TU-local, but indexed); and a bare call inside an OUT-OF-LINE member body
+    //     `T::m(){ foo(); }` is not scope-qualified (N-S1 only qualifies in-class bodies), so if `foo`
+    //     is a private member AND a unique same-dir free `foo` exists, it binds to the free function.
+    //   All over-resolutions emit `likely` (never `confirmed`) — within the codebase-only ceiling.
+    const cppGlobals = new Map<string, Set<string>>();
 
     for (const file of input.files) {
       const config = CONFIGS[extensionOf(file.path)];
@@ -503,6 +518,11 @@ export const treeSitterProvider: LanguageProvider = {
                 confidence: exported ? "candidate" : "unclear",
                 reason: `tree-sitter ${extensionOf(file.path)} declaration`
               });
+              // C++ N-S2: index a non-static FREE function (no `::`), keyed by its directory.
+              if (config.qualifyByType && kind === "function" && exported && !name.includes("::")) {
+                const key = `${dirOf(file.path)} ${name}`;
+                (cppGlobals.get(key) ?? cppGlobals.set(key, new Set()).get(key)!).add(file.path);
+              }
             }
           }
         }
@@ -568,6 +588,19 @@ export const treeSitterProvider: LanguageProvider = {
       }
       if (!qualifier && parse.declNames.has(name)) {
         return { to: `${self}#${name}`, kind: "direct", conf: "likely" };
+      }
+      // C++ N-S2 (ADR 0035): a bare call the intra-file pass didn't resolve binds to the UNIQUE
+      // global (non-static, free) definition of that name in another file — the header-declares /
+      // .cpp-defines / called-elsewhere edge, captured via C++'s global linkage. Ambiguous (>1
+      // definition, e.g. overloads) or undefined → stays `unresolved`. qualifyByType-gated. This is
+      // reached only when `name` is absent from the caller's own `declNames` (the intra-file check
+      // above returns first), so a same-file definition never routes through here.
+      if (parse.config.qualifyByType && !qualifier) {
+        const defs = cppGlobals.get(`${dirOf(self)} ${name}`); // same-directory definitions only
+        if (defs && defs.size === 1) {
+          const [defFile] = defs;
+          return { to: `${defFile}#${name}`, kind: "direct", conf: "likely" };
+        }
       }
       if (parse.config.resolution === "module") {
         // Rust: `mod::name` (scoped) → the module's file; bare `name` → a `use`-imported name.
