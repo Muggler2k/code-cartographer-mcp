@@ -16,6 +16,12 @@ jobs:
           node-version: "22" # >= 22.5 for the built-in node:sqlite graph index (ADR 0023)
           cache: npm
 
+      # The Roslyn sidecar targets net10.0 — pin the SDK so the C#/VB tier builds deterministically
+      # regardless of the runner image's default SDK.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
       # `npm ci` requires a platform-complete lockfile, but package-lock.json is generated on the
       # Windows-primary dev toolchain and omits optional transitive deps that Linux needs (e.g.
       # @emnapi/core / @emnapi/runtime via web-tree-sitter's wasm runtime) — npm does not produce
@@ -29,6 +35,12 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Pre-build the Roslyn sidecar ONCE (with the pinned SDK above) so the parallel vitest workers
+      # reuse the built dll instead of each racing `dotnet build` on shared bin/obj MSBuild locks —
+      # the cause of intermittent csharpProvider/vb sidecar test failures.
+      - name: Pre-build the Roslyn sidecar (deterministic C#/VB tests)
+        run: dotnet build -c Release --nologo tools/roslyn-analyzer
 
       - name: Test
         run: npm test
