@@ -84,7 +84,7 @@ function expectGates(name: string, base: FixtureBaseline, result: SubjectResult)
 }
 
 describe("benchmark gates — tier-stable fixtures (ADR 0030)", () => {
-  for (const name of ["ts-small", "python-small", "edge-cases"]) {
+  for (const name of ["ts-small", "python-small", "cpp-small", "edge-cases"]) {
     it(`${name}: structural metrics match the baseline; wall-clock under sanity ceilings`, async () => {
       const base = (await baselines())[name];
       expectGates(name, base, await runAgainstBaseline(name, base));

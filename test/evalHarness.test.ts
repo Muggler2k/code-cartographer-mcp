@@ -37,6 +37,10 @@ describe("capability evaluation gate (ADR 0029)", () => {
     expectClean(await score("python-small"));
   }, 120_000);
 
+  it("cpp-small: C++ tree-sitter tier — likely nodes, intra-file edges, cross-file disclosed unresolved (Epic N baseline)", async () => {
+    expectClean(await score("cpp-small"));
+  }, 120_000);
+
   it("mixed: per-language routing + binary handling", async () => {
     expectClean(await score("mixed"));
   }, 120_000);

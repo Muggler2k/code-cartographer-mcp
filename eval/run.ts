@@ -11,7 +11,7 @@ import { loadGolden, runSubject, type SubjectResult } from "./harness.js";
 import { dotnetAvailable } from "../src/providers/csharp.js";
 
 const EVAL_DIR = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES = ["ts-small", "python-small", "csharp-small", "vb-small", "mixed", "edge-cases"];
+const FIXTURES = ["ts-small", "python-small", "cpp-small", "csharp-small", "vb-small", "mixed", "edge-cases"];
 
 async function main(): Promise<void> {
   const results: SubjectResult[] = [];
