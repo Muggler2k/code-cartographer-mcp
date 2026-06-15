@@ -31,6 +31,8 @@ const TEST_TIMEOUT_MS = 90_000;
 interface Budget {
   slaMs: number;
   devBaselineMs: number;
+  /** Override the child-process timeout for a target whose build exceeds the 60s default (a large repo). */
+  childTimeoutMs?: number;
 }
 
 interface ColdStartMeasurement {
@@ -75,14 +77,32 @@ const TARGETS = Object.fromEntries(
   })
 );
 
+// S4 large-real-SOURCE SLA (turnkey, ADR 0034): point CCM_COLDSTART_LARGE_REAL at a representative
+// LARGE real source repo and its cold start is gated here — gitignore-scoped, with a generous SLA +
+// child timeout (a large repo's cold start is tens of seconds: a VS Code checkout is ~15.7k files /
+// ~88k nodes / ~212k edges / ~50s). No machine-specific path is committed (it SKIPS when the env is
+// unset or the path is missing). Set CCM_COLDSTART_LARGE_REAL_SLA to tune the ceiling (default
+// 180000ms — generous; it catches the never-throw / scaling-blowup regression class on a real repo,
+// e.g. the spread-push arg-cap overflow that PR #52 fixed).
+const LARGE_REAL = process.env.CCM_COLDSTART_LARGE_REAL?.trim();
+if (LARGE_REAL && existsSync(LARGE_REAL)) {
+  TARGETS[LARGE_REAL] = {
+    slaMs: Number(process.env.CCM_COLDSTART_LARGE_REAL_SLA) || 180_000,
+    devBaselineMs: 0, // no committed baseline for a user-supplied path (shown only in the failure message)
+    childTimeoutMs: 300_000
+  };
+}
+
 /** Build `target` in a fresh node process (true cold start) and return its measurement. */
-function measureColdStart(target: string): ColdStartMeasurement {
+function measureColdStart(target: string, childTimeoutMs: number = CHILD_TIMEOUT_MS): ColdStartMeasurement {
   let stdout: string;
   try {
-    stdout = execFileSync(process.execPath, ["--import", "tsx", RUNNER, target], {
+    // --max-old-space-size raises the heap ceiling so a genuinely large repo (e.g. a VS Code checkout:
+    // ~88k nodes / ~212k edges) doesn't OOM; harmless for the small targets (they never approach it).
+    stdout = execFileSync(process.execPath, ["--max-old-space-size=8192", "--import", "tsx", RUNNER, target], {
       cwd: REPO_ROOT,
       encoding: "utf8",
-      timeout: CHILD_TIMEOUT_MS
+      timeout: childTimeoutMs
     });
   } catch (err) {
     // execFileSync throws on a non-zero exit OR on timeout. Surface the child's stderr/stdout so
@@ -106,14 +126,15 @@ describe("cold-start latency SLA (ADR 0034 S4)", () => {
   // load; self (this repo) the realistic multi-language TS-Program + WASM + walk cost; csharp-small
   // (dotnet-gated) the Roslyn sidecar warm-up; large (CI-only, see RUN_LARGE) count-scaling.
   for (const [target, budget] of Object.entries(TARGETS)) {
+    const childTimeout = budget.childTimeoutMs ?? CHILD_TIMEOUT_MS;
     it(`${target}: fresh-process cold start stays under the SLA`, () => {
-      const measured = measureColdStart(target);
+      const measured = measureColdStart(target, childTimeout);
       expect(measured.nodes, `${target} produced an empty graph — cold start did no work`).toBeGreaterThan(0);
       expect(
         measured.coldMs,
         `${target} cold start ${measured.coldMs}ms breached the SLA ${budget.slaMs}ms (dev baseline ~${budget.devBaselineMs}ms). ` +
           `If a slow CI runner is the cause, bump slaMs in eval/baselines.json with reasoning; otherwise this is a real cold-start regression.`
       ).toBeLessThan(budget.slaMs);
-    }, TEST_TIMEOUT_MS);
+    }, Math.max(TEST_TIMEOUT_MS, childTimeout + 30_000));
   }
 });
