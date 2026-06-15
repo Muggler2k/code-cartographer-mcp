@@ -11,7 +11,7 @@
 // into a runnable form, executes target code, or loads target assemblies.
 
 import { spawn, spawnSync } from "node:child_process";
-import { promises as fs, type Dirent } from "node:fs";
+import { promises as fs, existsSync, readdirSync, type Dirent } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,6 +62,22 @@ export function dotnetAvailable(): boolean {
 }
 
 let buildPromise: Promise<string | null> | null = null;
+
+/**
+ * Sync check: is a built `RoslynAnalyzer.dll` present under `bin/Release/<tfm>`? Lets a caller gate
+ * work that REQUIRES an already-built sidecar — e.g. the cold-start latency SLA, which measures the
+ * per-session cold start (sidecar spawn + JIT) and is only meaningful once the dll exists — on its
+ * readiness, instead of triggering a (possibly minutes-long) NuGet build. Does NOT check freshness;
+ * `ensureAnalyzerBuilt` owns the mtime-vs-source rebuild decision at analyze time.
+ */
+export function analyzerBuilt(): boolean {
+  const releaseDir = path.join(ANALYZER_DIR, "bin", "Release");
+  try {
+    return readdirSync(releaseDir).some((tfm) => existsSync(path.join(releaseDir, tfm, "RoslynAnalyzer.dll")));
+  } catch {
+    return false; // no Release dir yet
+  }
+}
 
 /** Newest built `RoslynAnalyzer.dll` under `bin/Release/<tfm>`, with its mtime; null if none. */
 async function findAnalyzerDll(): Promise<{ dll: string; mtimeMs: number } | null> {
