@@ -254,12 +254,12 @@ export interface InitTimings {
 
 /**
  * Append every element of `source` onto `target` in place. NOT `target.push(...source)`: a spread
- * call passes each element as a separate ARGUMENT, and V8 caps the argument count (~65k), so
- * `push(...bigArray)` throws `RangeError: Maximum call stack size exceeded` on a large repo (e.g.
- * a provider emitting >65k call edges). A loop has no such ceiling — this keeps the build
- * degrade-never-throw at scale (ADR 0034 S1).
+ * call passes each element as a separate ARGUMENT, and V8 caps the argument count (engine-dependent,
+ * measured ~125k here), so `push(...bigArray)` throws `RangeError: Maximum call stack size exceeded`
+ * on a large repo (e.g. VS Code's 211,706 call edges). A loop has no such ceiling — this keeps the
+ * build degrade-never-throw at scale (ADR 0034 S1; the regression guard is in test/robustness.test.ts).
  */
-function appendAll<T>(target: T[], source: readonly T[]): void {
+export function appendAll<T>(target: T[], source: readonly T[]): void {
   for (let i = 0; i < source.length; i++) target.push(source[i]);
 }
 
