@@ -649,25 +649,19 @@ export const treeSitterProvider: LanguageProvider = {
     const parses: FileParse[] = [];
     const declsByFile = new Map<string, Set<string>>(); // file -> declared top-level names
     const goPackages = new Map<string, Map<string, string>>(); // dir -> name -> declaring file
-    // C++ N-S2/N-S3 (ADR 0035): `<dir> <name>` -> file(s) in that dir DEFINING a non-static function
-    // whose qualified name comes from its enclosing scope — a global free function (`shared_util`,
-    // N-S2) OR a namespace member (`geometry::side`, N-S3). A call the intra-file pass can't resolve
-    // binds to the unique SAME-DIRECTORY definition — a deliberately conservative proxy for
-    // `#include`-scoping (the dir is a rough module boundary, mirroring `goPackages`): it resolves the
-    // common same-module header/.cpp edge while staying honest across unrelated modules (a cross-dir
-    // or ambiguous name stays `unresolved`, never a false edge). CLASS members (`Type::m`, including
-    // an out-of-line `int Type::m(){}` at file scope) and static functions (file-local) are excluded.
-    // Limitations (deferred to a fuller #include-graph + scope-aware stage), clamped to `likely`:
-    //   UNDER-resolve — an `inline` definition in a header counts as a second def → that name stays
-    //     `unresolved`; same-file overloads collapse to one file node; cross-dir module calls.
-    //   OVER-resolve (bounded: same-dir, unique non-static name) — an anonymous-namespace function is
-    //     treated as global (TU-local, but indexed); and a bare call inside an OUT-OF-LINE member body
-    //     `T::m(){ foo(); }` is not scope-qualified (N-S1 only qualifies in-class bodies), so if `foo`
-    //     is a private member AND a unique same-dir free `foo` exists, it binds to the free function.
-    //   All over-resolutions emit `likely` (never `confirmed`) — within the codebase-only ceiling.
-    const cppGlobals = new Map<string, Set<string>>();
-    // C++ (ADR 0035): the same indexable functions keyed by name only (no dir) -> defining file(s),
-    // for cross-DIRECTORY resolution gated by the `#include` graph (a def must be include-connected).
+    // C++ N-S2/N-S3 (ADR 0035): the SINGLE index of cross-file-resolvable functions — `<name>` ->
+    // file(s) DEFINING it. A function is indexed iff its qualified name comes from its enclosing scope:
+    // a global free function (`shared_util`, N-S2) OR a namespace member (`geometry::side`, N-S3). CLASS
+    // members (`Type::m`, incl. an out-of-line `int Type::m(){}`), static functions, and anonymous-
+    // namespace (internal-linkage) functions are excluded. Two views are DERIVED from this one map at
+    // read time (so they can never desync): SAME-DIRECTORY resolution — the dir-as-module proxy,
+    // mirroring `goPackages` — groups the defining files by directory (`resolveSameDir`); cross-
+    // DIRECTORY resolution is gated by the `#include` graph (`resolveViaIncludes`). A call binds only to
+    // a UNIQUE definition in the relevant set; ambiguous (>1) or cross-dir-without-include stays
+    // `unresolved`, never a false edge; everything emits `likely` (never `confirmed`).
+    // Bounded over-resolutions (same-dir, unique non-static name; deferred to a fuller #include/scope
+    // stage): an inline-in-header def + sibling counts as 2 → `unresolved`; a bare call in an OUT-OF-
+    // LINE member body to a private member name colliding with a same-dir free function binds the free.
     const cppDefsByName = new Map<string, Set<string>>();
 
     for (const file of input.files) {
@@ -695,7 +689,7 @@ export const treeSitterProvider: LanguageProvider = {
       const memberDecls = new Set<string>(); // C++: `Type::method` for in-class method declarations (declared, maybe not defined)
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
       // `enclosingIsType` (C++): are we inside a class/struct body? A namespace resets it to false.
-      // Used to index namespace members + global functions into cppGlobals but NOT class members.
+      // Used to index namespace members + global functions into cppDefsByName but NOT class members.
       // `enclosingInternal` (C++): are we inside an ANONYMOUS namespace? Its members have INTERNAL
       // linkage (TU-local, invisible to other files), so they must never enter the cross-file index —
       // the same reason `static` is excluded (`exported`). Once internal, always internal (nested).
@@ -742,15 +736,13 @@ export const treeSitterProvider: LanguageProvider = {
               });
               // C++ N-S2/N-S3: index a non-static function whose qualified name comes from its
               // ENCLOSING scope — a global free function (`shared_util`) or a namespace member
-              // (`geometry::side`) — keyed by its directory, for same-dir cross-file resolution.
-              // Excluded: class members (`enclosingIsType`), AND an out-of-line definition
-              // (`int Type::m(){}` at file scope) whose declarator carries a `::` the enclosing scope
-              // didn't provide — indexing those would over-resolve cross-file member calls.
+              // (`geometry::side`) — for cross-file resolution. Excluded: class members
+              // (`enclosingIsType`), an out-of-line definition (`int Type::m(){}` at file scope) whose
+              // declarator carries a `::` the enclosing scope didn't provide (would over-resolve member
+              // calls), and anonymous-namespace (internal-linkage) functions.
               const scopeQualified =
                 enclosingType === null ? !name.includes("::") : name.startsWith(`${enclosingType}::`);
               if (config.qualifyByType && kind === "function" && exported && !enclosingIsType && !enclosingInternal && scopeQualified) {
-                const key = `${dirOf(file.path)} ${name}`;
-                (cppGlobals.get(key) ?? cppGlobals.set(key, new Set()).get(key)!).add(file.path);
                 (cppDefsByName.get(name) ?? cppDefsByName.set(name, new Set()).get(name)!).add(file.path);
               }
             }
@@ -825,6 +817,20 @@ export const treeSitterProvider: LanguageProvider = {
       const [defFile] = hits;
       return { to: `${defFile}#${key}`, kind: "direct", conf: "likely" };
     };
+    // SAME-DIRECTORY resolution (the dir-as-module proxy) DERIVED from the single `cppDefsByName` index:
+    // bind to the UNIQUE definition of `key` whose directory matches `dir`. >1 (or 0) same-dir defs →
+    // null (`unresolved`). One source of truth, so the same-dir and cross-dir views can never desync.
+    const resolveSameDir = (dir: string, key: string): { to: string; kind: CallEdgeKind; conf: Confidence } | null => {
+      const defFiles = cppDefsByName.get(key);
+      if (!defFiles) return null;
+      let hit: string | null = null;
+      let n = 0;
+      for (const f of defFiles) if (dirOf(f) === dir) {
+        hit = f;
+        if (++n > 1) return null;
+      }
+      return n === 1 && hit ? { to: `${hit}#${key}`, kind: "direct", conf: "likely" } : null;
+    };
     const resolveCallee = (
       parse: FileParse,
       parsed: { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null; globalScoped: boolean },
@@ -883,16 +889,13 @@ export const treeSitterProvider: LanguageProvider = {
       // C++ N-S2 (ADR 0035): a BARE call the intra-file pass didn't resolve binds to the UNIQUE
       // global (non-static, free) definition of that name in another file — the header-declares /
       // .cpp-defines / called-elsewhere edge, captured via C++'s global linkage. (Namespace-member
-      // cross-file resolution shares this `cppGlobals` index but routes through the SCOPED branch
+      // cross-file resolution uses the same `cppDefsByName` index but routes through the SCOPED branch
       // below.) Ambiguous (>1 definition, e.g. overloads) or undefined → stays `unresolved`.
       // qualifyByType-gated. Reached only when `name` is absent from the caller's own `declNames` (the
       // intra-file check above returns first), so a same-file definition never routes through here.
       if (parse.config.qualifyByType && !qualifier) {
-        const defs = cppGlobals.get(`${dirOf(self)} ${name}`); // same-directory definitions only
-        if (defs && defs.size === 1) {
-          const [defFile] = defs;
-          return { to: `${defFile}#${name}`, kind: "direct", conf: "likely" };
-        }
+        const sameDir = resolveSameDir(dirOf(self), name); // unique same-directory definition
+        if (sameDir) return sameDir;
         const viaInc = resolveViaIncludes(parse, name); // cross-DIRECTORY via the #include graph
         if (viaInc) return viaInc;
       }
@@ -908,13 +911,10 @@ export const treeSitterProvider: LanguageProvider = {
           return { to: `${self}#${scopedPath}`, kind: "direct", conf: "likely" };
         }
         // Cross-FILE same-dir: the qualified name (a namespace member like `remote::fetch`) is defined
-        // in another file in the SAME directory — the unique same-dir definition (`size === 1`), the
-        // N-S2 dir-as-module proxy extended to namespace members. Ambiguous → `unresolved`.
-        const defs = cppGlobals.get(`${dirOf(self)} ${scopedPath}`);
-        if (defs && defs.size === 1) {
-          const [defFile] = defs;
-          return { to: `${defFile}#${scopedPath}`, kind: "direct", conf: "likely" };
-        }
+        // in another file in the SAME directory — the unique same-dir definition, the N-S2 dir-as-module
+        // proxy extended to namespace members. Ambiguous → `unresolved`.
+        const sameDir = resolveSameDir(dirOf(self), scopedPath);
+        if (sameDir) return sameDir;
         const viaInc = resolveViaIncludes(parse, scopedPath); // cross-DIRECTORY via the #include graph
         if (viaInc) return viaInc;
       }
