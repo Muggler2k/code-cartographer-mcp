@@ -88,5 +88,11 @@
       "large": { "slaMs": 16000, "devBaselineMs": 2225 },
       "node_modules/typescript/lib": { "slaMs": 8000, "devBaselineMs": 1000 }
     }
+  },
+  "realCorpus": {
+    "_comment": "ADR 0034 S7 — the real-repo corpus regression gate (test/realCorpusGate.test.ts). Distinct from coldStartSla, which gates the SAME node_modules/typescript/lib's cold-start TIME: this runs the codebase-only honesty INVARIANTS (checkInvariants — version-independent, the load-bearing assertion) plus LOOSE structural bands on a real, dense, package-lock-pinned dependency present in CI after `npm install`. The bands are patch-drift robust (ADR 0030): a typescript patch bump stays in band; only an extraction collapse (→ near-zero) or an over-resolution blowup (→ multiples) trips them. typescript/lib is .d.ts-DECLARATION-heavy (baseline 125 files / 3039 nodes / 195 edges on the pinned version), so the edge-tier ceilings fire on unresolved/dynamic/direct edges but framework/method kinds are sparse here — that breadth stays covered by the synthetic fixtures. Edit consciously, never auto-regenerate.",
+    "targets": {
+      "node_modules/typescript/lib": { "nodesMin": 1500, "nodesMax": 8000, "edgesMin": 50 }
+    }
   }
 }
