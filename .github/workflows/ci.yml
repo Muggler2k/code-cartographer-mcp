@@ -44,7 +44,7 @@ jobs:
 
       - name: Test
         run: npm test
-        # Opt into the 1000-file 'large' cold-start scaling gate (ADR 0034 S4) — it generates +
+        # Opt into the ~5000-file 'large' cold-start scaling gate (ADR 0034 S4) — it generates +
         # builds a synthetic repo in a subprocess, so it's CI-only to keep the local loop fast.
         env:
           CCM_COLDSTART_LARGE: "1"
