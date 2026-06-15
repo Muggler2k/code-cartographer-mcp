@@ -413,7 +413,7 @@ export function findKBestPaths(
     if (last === to) {
       // Emit each distinct node sequence once. `to` is a path endpoint and the simple-path
       // guard below forbids revisiting it, so there is no cycle-back-to-`to` to explore.
-      const key = cur.nodes.join(" ");
+      const key = cur.nodes.join("\0");
       if (!seen.has(key)) {
         seen.add(key);
         results.push(makePath(cur.nodes, cur.edges));
