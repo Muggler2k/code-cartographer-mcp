@@ -37,6 +37,14 @@ int useDup() {
   return dup();                             // ambiguous (one::dup vs two::dup) -> unresolved, NOT a guess
 }
 
+int useRemote() {
+  return remote::fetch();                   // cross-FILE namespace call -> lib.cpp#remote::fetch (N-S3 cross-file)
+}
+
+int useGadget() {
+  return Gadget::spin();                     // out-of-line member def (lib.cpp) is NOT indexed -> unresolved
+}
+
 int useDeep() {
   return outer::inner::deep();              // fully-qualified -> outer::inner::deep, NEVER inner::deep (no false edge)
 }

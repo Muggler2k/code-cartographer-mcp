@@ -1,5 +1,5 @@
 {
-  "_comment": "Epic N (ADR 0035) N-S3 — C++ namespace + `using` resolution on the tree-sitter floor (ceiling `likely`). A function inside `namespace ns { }` is qualified `ns::f` (decl pass treats the namespace as an enclosing scope, like a class in N-S1), accumulating through nesting (`outer::inner::deep`). A bare call from WITHIN the namespace resolves enclosing-first: `side()` inside `geometry::area` -> `geometry::side`. A SCOPED call binds to the declaration whose node id is the call's FULL `::`-path: `compute -> geometry::area`, `main -> geometry::side`, and `useDeep -> outer::inner::deep` (NOT the unrelated `inner::deep` of `struct inner` — full-path match, no 2-segment collision). `using` declarations resolve bare calls: `using geometry::side;` makes `viaUsing`'s bare `side()` -> `geometry::side`, and `using namespace text;` makes bare `helper()` -> `text::helper` (file-scoped approximation; bound only when the member is declared in-file; >1 used namespace declaring a name stays `unresolved`). CONFLICTING using-declarations (`using one::dup;` + `using two::dup;`) are AMBIGUOUS, so `useDup`'s bare `dup()` stays `unresolved` — never a guess. `text::helper` is unreachable from `main`. Cross-FILE namespace resolution is deferred (disclosed); an unknown scope/name stays `unresolved`.",
+  "_comment": "Epic N (ADR 0035) N-S3 — C++ namespace + `using` + cross-file namespace resolution on the tree-sitter floor (ceiling `likely`). A function inside `namespace ns { }` is qualified `ns::f` (decl pass treats the namespace as an enclosing scope, like a class in N-S1), accumulating through nesting (`outer::inner::deep`). A bare call from WITHIN the namespace resolves enclosing-first: `side()` inside `geometry::area` -> `geometry::side`. A SCOPED call binds to the declaration whose node id is the call's FULL `::`-path: `compute -> geometry::area`, `main -> geometry::side`, and `useDeep -> outer::inner::deep` (NOT the unrelated `inner::deep` of `struct inner` — full-path match, no 2-segment collision). A scoped call whose target is NOT in this file binds CROSS-FILE to the unique same-directory namespace-member definition: `useRemote -> lib.cpp#remote::fetch` (the N-S2 dir-as-module proxy extended to namespace members; class members are NOT indexed; ambiguous/cross-dir stays `unresolved`). Only functions whose qualified name comes from their ENCLOSING scope are indexed — an OUT-OF-LINE member definition (`int Gadget::spin(){}` at file scope) is NOT a cross-file target, so `useGadget`'s `Gadget::spin()` stays `unresolved` (conservative: never over-resolve a member call). `using` declarations resolve bare calls: `using geometry::side;` makes `viaUsing`'s bare `side()` -> `geometry::side`, and `using namespace text;` makes bare `helper()` -> `text::helper` (file-scoped approximation; bound only when the member is declared in-file; >1 used namespace declaring a name stays `unresolved`). CONFLICTING using-declarations (`using one::dup;` + `using two::dup;`) are AMBIGUOUS, so `useDup`'s bare `dup()` stays `unresolved` — never a guess. `text::helper` is unreachable from `main`. An unknown scope/name stays `unresolved`.",
   "symbols": {
     "required": [
       "ns.cpp#geometry::side",
@@ -13,8 +13,13 @@
       "ns.cpp#compute",
       "ns.cpp#viaUsing",
       "ns.cpp#useDup",
+      "ns.cpp#useRemote",
+      "ns.cpp#useGadget",
       "ns.cpp#useDeep",
-      "ns.cpp#main"
+      "ns.cpp#main",
+      "lib.cpp#remote::fetch",
+      "lib.cpp#Gadget",
+      "lib.cpp#Gadget::spin"
     ],
     "forbidden": []
   },
@@ -28,8 +33,11 @@
     "ns.cpp#compute": true,
     "ns.cpp#viaUsing": true,
     "ns.cpp#useDup": true,
+    "ns.cpp#useRemote": true,
+    "ns.cpp#useGadget": true,
     "ns.cpp#useDeep": true,
-    "ns.cpp#main": true
+    "ns.cpp#main": true,
+    "lib.cpp#remote::fetch": true
   },
   "edges": {
     "required": [
@@ -38,6 +46,7 @@
       { "from": "ns.cpp#viaUsing", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#viaUsing", "to": "ns.cpp#text::helper", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#useDeep", "to": "ns.cpp#outer::inner::deep", "callKind": "direct", "confidence": "likely" },
+      { "from": "ns.cpp#useRemote", "to": "lib.cpp#remote::fetch", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#main", "to": "ns.cpp#compute", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#main", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" }
     ],
@@ -50,14 +59,16 @@
       { "from": "ns.cpp#viaUsing", "to": "unresolved#side" },
       { "from": "ns.cpp#viaUsing", "to": "unresolved#helper" },
       { "from": "ns.cpp#useDup", "to": "ns.cpp#one::dup" },
-      { "from": "ns.cpp#useDup", "to": "ns.cpp#two::dup" }
+      { "from": "ns.cpp#useDup", "to": "ns.cpp#two::dup" },
+      { "from": "ns.cpp#useRemote", "to": "unresolved#fetch" },
+      { "from": "ns.cpp#useGadget", "to": "lib.cpp#Gadget::spin" }
     ]
   },
   "reachability": [
     {
       "target": "main",
       "mustReach": ["ns.cpp#compute", "ns.cpp#geometry::area", "ns.cpp#geometry::side"],
-      "mustNotReach": ["ns.cpp#text::helper", "ns.cpp#outer::inner::deep", "ns.cpp#useDeep", "ns.cpp#viaUsing", "ns.cpp#useDup"]
+      "mustNotReach": ["ns.cpp#text::helper", "ns.cpp#outer::inner::deep", "ns.cpp#useDeep", "ns.cpp#viaUsing", "ns.cpp#useDup", "ns.cpp#useRemote", "lib.cpp#remote::fetch", "ns.cpp#useGadget", "lib.cpp#Gadget::spin"]
     }
   ]
 }
