@@ -1,0 +1,49 @@
+{
+  "_comment": "Epic N (ADR 0035) N-S3 — C++ namespace resolution on the tree-sitter floor (ceiling `likely`). A function inside `namespace ns { }` is qualified `ns::f` (decl pass treats the namespace as an enclosing scope, like a class in N-S1), accumulating through nesting (`outer::inner::deep`). A bare call from WITHIN the namespace resolves enclosing-first (C++ unqualified lookup searches the enclosing namespace): `side()` inside `geometry::area` -> `geometry::side`. A SCOPED call binds to the declaration whose node id is the call's FULL `::`-path: `compute -> geometry::area`, `main -> geometry::side`, and crucially `useDeep -> outer::inner::deep` (NOT the unrelated `inner::deep` of `struct inner` — the full-path match means a deep call never collides with a 2-segment tail). `text::helper` is a distinct namespace member, unreachable from `main`. Cross-FILE namespace resolution and `using` declarations are deferred (disclosed); an unknown scope/name stays `unresolved`.",
+  "symbols": {
+    "required": [
+      "ns.cpp#geometry::side",
+      "ns.cpp#geometry::area",
+      "ns.cpp#text::helper",
+      "ns.cpp#outer::inner::deep",
+      "ns.cpp#inner",
+      "ns.cpp#inner::deep",
+      "ns.cpp#compute",
+      "ns.cpp#useDeep",
+      "ns.cpp#main"
+    ],
+    "forbidden": []
+  },
+  "exported": {
+    "ns.cpp#geometry::side": true,
+    "ns.cpp#geometry::area": true,
+    "ns.cpp#text::helper": true,
+    "ns.cpp#outer::inner::deep": true,
+    "ns.cpp#compute": true,
+    "ns.cpp#useDeep": true,
+    "ns.cpp#main": true
+  },
+  "edges": {
+    "required": [
+      { "from": "ns.cpp#geometry::area", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" },
+      { "from": "ns.cpp#compute", "to": "ns.cpp#geometry::area", "callKind": "direct", "confidence": "likely" },
+      { "from": "ns.cpp#useDeep", "to": "ns.cpp#outer::inner::deep", "callKind": "direct", "confidence": "likely" },
+      { "from": "ns.cpp#main", "to": "ns.cpp#compute", "callKind": "direct", "confidence": "likely" },
+      { "from": "ns.cpp#main", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" }
+    ],
+    "forbidden": [
+      { "from": "ns.cpp#compute", "to": "unresolved#area" },
+      { "from": "ns.cpp#geometry::area", "to": "unresolved#side" },
+      { "from": "ns.cpp#main", "to": "unresolved#side" },
+      { "from": "ns.cpp#useDeep", "to": "ns.cpp#inner::deep" },
+      { "from": "ns.cpp#useDeep", "to": "unresolved#deep" }
+    ]
+  },
+  "reachability": [
+    {
+      "target": "main",
+      "mustReach": ["ns.cpp#compute", "ns.cpp#geometry::area", "ns.cpp#geometry::side"],
+      "mustNotReach": ["ns.cpp#text::helper", "ns.cpp#outer::inner::deep", "ns.cpp#useDeep"]
+    }
+  ]
+}
