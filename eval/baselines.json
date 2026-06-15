@@ -78,5 +78,12 @@
       },
       "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
     }
+  },
+  "coldStartSla": {
+    "_comment": "ADR 0034 S4 — conversational COLD-START latency SLAs, gated by test/latencySla.test.ts. Each target is built in a FRESH node process (true cold start: WASM tree-sitter grammars + the TS Program load from scratch — the two cold-start drivers ADR 0034 names). Unlike the per-fixture softCeilingsMs (a ~10× wall-clock SANITY ceiling on a within-process init), these are real product budgets: the first deep tool call must return under slaMs even on a slow CI runner. Honoring ADR 0030's anti-flakiness mandate, slaMs keeps generous headroom over devBaselineMs (machine-relative; a slow runner needing a bump is a conscious edit here, with reasoning — never auto-regenerated). 'self' = this repository (a realistic ~144-file multi-language medium repo: TS source + cpp/python/… fixtures → WASM), gitignore-scoped; coldMs grows as the repo grows, so a breach is a genuine 'cold-start regressed' signal.",
+    "targets": {
+      "cpp-namespaces": { "slaMs": 5000, "devBaselineMs": 125 },
+      "self": { "slaMs": 12000, "devBaselineMs": 2800 }
+    }
   }
 }
