@@ -646,6 +646,12 @@ export const treeSitterProvider: LanguageProvider = {
     const fileSet = new Set(input.files.map((f) => f.path));
 
     // ---- Phase 1: parse every owned file; emit declarations/ownership; collect resolution data ----
+    // web-tree-sitter `Parser`/`Tree` own WASM-heap memory freed only by explicit `.delete()` (JS GC
+    // never reclaims it). Reuse ONE parser and retain every tree, then free both at the end of analyze
+    // — otherwise each `analyze()` leaks its parse trees and a long-running server's heap grows unbounded.
+    let parser: Parser | null = null;
+    const trees: Parser.Tree[] = [];
+    try {
     const parses: FileParse[] = [];
     const declsByFile = new Map<string, Set<string>>(); // file -> declared top-level names
     const goPackages = new Map<string, Map<string, string>>(); // dir -> name -> declaring file
@@ -677,9 +683,11 @@ export const treeSitterProvider: LanguageProvider = {
       if (!language) continue;
       let root: SyntaxNode;
       try {
-        const parser = new Parser();
+        if (!parser) parser = new Parser(); // one reused parser per analyze (Parser.init ran via getLanguage)
         parser.setLanguage(language);
-        root = parser.parse(text).rootNode;
+        const tree = parser.parse(text);
+        trees.push(tree); // retain to free its WASM heap at the end — a `SyntaxNode` is only valid while its tree lives
+        root = tree.rootNode;
       } catch {
         continue;
       }
@@ -1015,5 +1023,12 @@ export const treeSitterProvider: LanguageProvider = {
     }
 
     return { declarations, ownershipSignals, entryPointHints, callEdges };
+    } finally {
+      // Free the WASM heap unconditionally: the return value holds only plain data (no `SyntaxNode`),
+      // so every parse tree and the parser can be released — and `finally` covers the throw path too,
+      // so a mid-extraction error leaks nothing. Best-effort — never let a `.delete()` throw escape.
+      for (const t of trees) try { t.delete(); } catch { /* already freed / detached */ }
+      try { parser?.delete(); } catch { /* idempotent */ }
+    }
   }
 };
