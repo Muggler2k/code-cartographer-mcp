@@ -209,10 +209,11 @@ const declName = (spec: DeclSpec, node: SyntaxNode): string | undefined =>
  * this is a pass-through of `declName` (no qualification), so their resolution is unchanged. Used
  * by BOTH the declaration pass and the edge pass so a method's node id and its edge endpoints agree.
  *
- * Known N-S1 limitations (both UNDER-resolve honestly — `unresolved`, never a wrong edge — and are
- * addressed by later stages): nested classes qualify one level only; an out-of-line method BODY
- * (`int C::run(){…}` at namespace scope) isn't scope-aware, so its bare member calls stay
- * `unresolved` until N-S2; namespaces are deferred to N-S3.
+ * Known limitations (UNDER-resolve honestly — `unresolved`, never a wrong edge — addressed by later
+ * stages): an out-of-line method BODY (`int C::run(){…}` at namespace scope) isn't scope-aware, so
+ * its bare member calls stay `unresolved` until N-S2; a class declared INSIDE a namespace qualifies
+ * its methods by the class but not the namespace (`ns::C::m` → `C::m`) — one-level, N-S3 covers the
+ * function-in-namespace case (`ns::f`) which is the common one.
  */
 function declScope(
   config: LangConfig,
@@ -227,6 +228,22 @@ function declScope(
   }
   const childType = config.qualifyByType && kind === "class" && name ? name : enclosingType;
   return { name, kind, childType };
+}
+
+/**
+ * C++ N-S3 (ADR 0035): the enclosing scope a node hands to its children. A `namespace ns { … }`
+ * prefixes its members like a class does, so a function inside becomes `ns::f` and a bare call from
+ * within resolves enclosing-first (C++ unqualified lookup searches the enclosing namespace). Nesting
+ * accumulates (`a::b::f`). Anonymous namespaces add no qualifier (treated as the enclosing scope —
+ * consistent with the N-S2 anon-namespace note). Non-namespace nodes pass `childType` through
+ * unchanged, so class scoping (N-S1) is untouched. qualifyByType-gated → no other language affected.
+ */
+function cppChildScope(config: LangConfig, node: SyntaxNode, enclosingType: string | null): string | null {
+  if (config.qualifyByType && node.type === "namespace_definition") {
+    const nsName = node.childForFieldName("name")?.text;
+    if (nsName) return enclosingType ? `${enclosingType}::${nsName}` : nsName;
+  }
+  return enclosingType;
 }
 
 /** C++: the function name is nested in function_definition → (ptr/ref) → function_declarator → declarator. */
@@ -246,14 +263,22 @@ function cppFunctionName(node: SyntaxNode): string | undefined {
 }
 
 /** Split a callee text into name/qualifier, noting whether a `::` path (scoped) was used.
- * "pm.run" → {name:"run", qualifier:"pm", scoped:false}; "util::other" → {..., scoped:true}. */
-function splitCallee(text: string): { name: string; qualifier: string | null; scoped: boolean } | null {
+ * "pm.run" → {name:"run", qualifier:"pm", scoped:false}; "util::other" → {..., scoped:true}.
+ * `scopedPath` is the FULL `::`-joined identifier path for a scoped call ("a::b::f" for `a::b::f()`,
+ * template args/whitespace stripped), else null — C++ N-S3 matches it against `declNames` so a deep
+ * `a::b::f()` binds to its `a::b::f` node and never collides with an unrelated 2-segment `b::f`. */
+function splitCallee(text: string): { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null } | null {
   const scoped = text.includes("::");
   const parts = text.split(/::|\./);
   const name = parts[parts.length - 1].match(/[A-Za-z_]\w*/)?.[0];
   if (!name) return null;
   const qualifier = parts.length >= 2 ? (parts[parts.length - 2].match(/[A-Za-z_]\w*/)?.[0] ?? null) : null;
-  return { name, qualifier, scoped };
+  let scopedPath: string | null = null;
+  if (scoped && !text.includes(".")) {
+    const idents = text.split("::").map((p) => p.match(/[A-Za-z_]\w*/)?.[0]);
+    if (idents.length >= 2 && idents.every((id): id is string => Boolean(id))) scopedPath = idents.join("::");
+  }
+  return { name, qualifier, scoped, scopedPath };
 }
 
 interface ImportRef {
@@ -499,7 +524,7 @@ export const treeSitterProvider: LanguageProvider = {
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
       const visitDecls = (node: SyntaxNode, enclosingType: string | null): void => {
         const spec = declSpecFor(node);
-        let childType = enclosingType;
+        let childType = cppChildScope(config, node, enclosingType); // C++ N-S3: namespace scope
         if (spec) {
           const { name, kind, childType: ct } = declScope(config, spec, node, enclosingType);
           childType = ct;
@@ -571,10 +596,10 @@ export const treeSitterProvider: LanguageProvider = {
     // ---- Phase 2: resolve and emit call edges ----
     const resolveCallee = (
       parse: FileParse,
-      parsed: { name: string; qualifier: string | null; scoped: boolean },
+      parsed: { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null },
       callingType: string | null
     ): { to: string; kind: CallEdgeKind; conf: Confidence } => {
-      const { name, qualifier, scoped } = parsed;
+      const { name, qualifier, scoped, scopedPath } = parsed;
       const self = parse.file.path;
       // C++ N-S1 (ADR 0035): an unqualified call from inside `Type` resolves to that type's
       // `Type::name` member FIRST — a class member hides a namespace-scope function of the same name
@@ -601,6 +626,16 @@ export const treeSitterProvider: LanguageProvider = {
           const [defFile] = defs;
           return { to: `${defFile}#${name}`, kind: "direct", conf: "likely" };
         }
+      }
+      // C++ N-S3 (ADR 0035): a SCOPED call `Scope::name` — namespace-qualified (`geometry::area()`,
+      // nested `outer::inner::deep()`) or class-qualified (`Calculator::value()`, a static/explicit
+      // member call) — binds to the declaration whose node id is the call's FULL `::`-path (the decl
+      // pass qualifies namespace/class members the same way). Matching the full path, not a truncated
+      // `qualifier::name`, means a deep call never collides with an unrelated 2-segment `b::f`.
+      // `::`-scoped only, so `obj.method()` / `ptr->m()` (unscoped) never route here. Intra-file;
+      // ceiling `likely` (no type system); an unknown scope/name stays `unresolved`. qualifyByType-gated.
+      if (parse.config.qualifyByType && scopedPath && parse.declNames.has(scopedPath)) {
+        return { to: `${self}#${scopedPath}`, kind: "direct", conf: "likely" };
       }
       if (parse.config.resolution === "module") {
         // Rust: `mod::name` (scoped) → the module's file; bare `name` → a `use`-imported name.
@@ -650,7 +685,7 @@ export const treeSitterProvider: LanguageProvider = {
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
       const visitEdges = (node: SyntaxNode, enclosing: string | null, enclosingType: string | null): void => {
         let nextEnclosing = enclosing;
-        let childType = enclosingType;
+        let childType = cppChildScope(config, node, enclosingType); // C++ N-S3: namespace scope
         const spec = declSpecFor(node);
         if (spec) {
           // Same qualification as the declaration pass, so a method's edge endpoints match its node.

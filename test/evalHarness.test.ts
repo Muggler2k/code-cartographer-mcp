@@ -41,6 +41,10 @@ describe("capability evaluation gate (ADR 0029)", () => {
     expectClean(await score("cpp-small"));
   }, 120_000);
 
+  it("cpp-namespaces: C++ N-S3 — namespace-qualified declarations, enclosing-first + scoped-call resolution", async () => {
+    expectClean(await score("cpp-namespaces"));
+  }, 120_000);
+
   it("mixed: per-language routing + binary handling", async () => {
     expectClean(await score("mixed"));
   }, 120_000);
