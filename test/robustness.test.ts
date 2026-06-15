@@ -9,7 +9,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
 import { analyzeReachability } from "../src/analysis.js";
-import { initCodebase, readContextMap } from "../src/contextMap.js";
+import { appendAll, initCodebase, readContextMap } from "../src/contextMap.js";
 import { hashFile } from "../src/files.js";
 import { LARGE_FILE_THRESHOLD_BYTES } from "../src/schema.js";
 import { tempRepos } from "./helpers/fixtures.js";
@@ -146,5 +146,40 @@ describe("S1 robustness corpus — the build degrades, never throws (ADR 0034 S1
     expect(map?.callGraph.nodes.some((n) => n.symbol === "helper")).toBe(true);
     // A downstream capability over the partly-degraded map must also never throw.
     await expect(analyzeReachability(root, "main")).resolves.toBeDefined();
+  });
+});
+
+// runProviders aggregates every provider's edges into one array. On a large real repo (VS Code:
+// 211,706 call edges) the original `aggregate.callEdges.push(...clamped.callEdges)` THREW
+// `RangeError: Maximum call stack size exceeded` — a spread call passes each element as a separate
+// argument and V8 caps the argument count (engine-dependent, ~125k here), so the build aborted.
+// PR #52 replaced the four spread-pushes with `appendAll` (a plain loop, no argument-count ceiling).
+//
+// This is a MECHANISM guard, NOT a call-site guard: it does not drive the real build (pushing 125k+
+// edges through buildContextMap is the VS-Code-scale cost the loop exists to make affordable — too
+// heavy to gate per-PR), so it cannot by itself catch a revert of the runProviders call sites back
+// to a spread. What it pins is the contract those call sites depend on: at an N past the arg-cap the
+// spread form genuinely overflows while `appendAll` does not. The contrastive `toThrow` is
+// load-bearing — it proves N is really past the cap (so `appendAll` not throwing is meaningful), and
+// if a future engine raised the cap above N it fails LOUDLY (raise N) instead of going silently vacuous.
+describe("appendAll keeps the build degrade-never-throw above V8's spread arg-cap (ADR 0034 S1, PR #52)", () => {
+  it("at an N past the spread arg-cap, the spread form throws but appendAll appends in order", () => {
+    const N = 500_000; // far past the ~125k arg-cap on any standard engine (margin for CI runners).
+    const source = Array.from({ length: N }, (_, i) => i);
+    // Premise — the exact bug PR #52 fixed: a spread-push genuinely overflows at this N. If this ever
+    // stops throwing (a future engine raised the cap), the test fails HERE, signalling "raise N",
+    // never silently passing as a vacuous guard.
+    expect(() => {
+      const spread: number[] = [];
+      spread.push(...source);
+    }).toThrow();
+    // Contract — appendAll has no such ceiling: it appends every element, in order, onto existing
+    // contents (the -1 sentinel proves it appends, never replaces).
+    const target = [-1];
+    expect(() => appendAll(target, source)).not.toThrow();
+    expect(target.length).toBe(N + 1);
+    expect(target[0]).toBe(-1); // sentinel preserved
+    expect(target[1]).toBe(0); // source appended in order, from its first element
+    expect(target[N]).toBe(N - 1); // ...through its last
   });
 });
