@@ -1,14 +1,18 @@
 {
-  "_comment": "Epic N (ADR 0035) N-S3 — C++ namespace resolution on the tree-sitter floor (ceiling `likely`). A function inside `namespace ns { }` is qualified `ns::f` (decl pass treats the namespace as an enclosing scope, like a class in N-S1), accumulating through nesting (`outer::inner::deep`). A bare call from WITHIN the namespace resolves enclosing-first (C++ unqualified lookup searches the enclosing namespace): `side()` inside `geometry::area` -> `geometry::side`. A SCOPED call binds to the declaration whose node id is the call's FULL `::`-path: `compute -> geometry::area`, `main -> geometry::side`, and crucially `useDeep -> outer::inner::deep` (NOT the unrelated `inner::deep` of `struct inner` — the full-path match means a deep call never collides with a 2-segment tail). `text::helper` is a distinct namespace member, unreachable from `main`. Cross-FILE namespace resolution and `using` declarations are deferred (disclosed); an unknown scope/name stays `unresolved`.",
+  "_comment": "Epic N (ADR 0035) N-S3 — C++ namespace + `using` resolution on the tree-sitter floor (ceiling `likely`). A function inside `namespace ns { }` is qualified `ns::f` (decl pass treats the namespace as an enclosing scope, like a class in N-S1), accumulating through nesting (`outer::inner::deep`). A bare call from WITHIN the namespace resolves enclosing-first: `side()` inside `geometry::area` -> `geometry::side`. A SCOPED call binds to the declaration whose node id is the call's FULL `::`-path: `compute -> geometry::area`, `main -> geometry::side`, and `useDeep -> outer::inner::deep` (NOT the unrelated `inner::deep` of `struct inner` — full-path match, no 2-segment collision). `using` declarations resolve bare calls: `using geometry::side;` makes `viaUsing`'s bare `side()` -> `geometry::side`, and `using namespace text;` makes bare `helper()` -> `text::helper` (file-scoped approximation; bound only when the member is declared in-file; >1 used namespace declaring a name stays `unresolved`). CONFLICTING using-declarations (`using one::dup;` + `using two::dup;`) are AMBIGUOUS, so `useDup`'s bare `dup()` stays `unresolved` — never a guess. `text::helper` is unreachable from `main`. Cross-FILE namespace resolution is deferred (disclosed); an unknown scope/name stays `unresolved`.",
   "symbols": {
     "required": [
       "ns.cpp#geometry::side",
       "ns.cpp#geometry::area",
       "ns.cpp#text::helper",
+      "ns.cpp#one::dup",
+      "ns.cpp#two::dup",
       "ns.cpp#outer::inner::deep",
       "ns.cpp#inner",
       "ns.cpp#inner::deep",
       "ns.cpp#compute",
+      "ns.cpp#viaUsing",
+      "ns.cpp#useDup",
       "ns.cpp#useDeep",
       "ns.cpp#main"
     ],
@@ -18,8 +22,12 @@
     "ns.cpp#geometry::side": true,
     "ns.cpp#geometry::area": true,
     "ns.cpp#text::helper": true,
+    "ns.cpp#one::dup": true,
+    "ns.cpp#two::dup": true,
     "ns.cpp#outer::inner::deep": true,
     "ns.cpp#compute": true,
+    "ns.cpp#viaUsing": true,
+    "ns.cpp#useDup": true,
     "ns.cpp#useDeep": true,
     "ns.cpp#main": true
   },
@@ -27,6 +35,8 @@
     "required": [
       { "from": "ns.cpp#geometry::area", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#compute", "to": "ns.cpp#geometry::area", "callKind": "direct", "confidence": "likely" },
+      { "from": "ns.cpp#viaUsing", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" },
+      { "from": "ns.cpp#viaUsing", "to": "ns.cpp#text::helper", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#useDeep", "to": "ns.cpp#outer::inner::deep", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#main", "to": "ns.cpp#compute", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#main", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" }
@@ -36,14 +46,18 @@
       { "from": "ns.cpp#geometry::area", "to": "unresolved#side" },
       { "from": "ns.cpp#main", "to": "unresolved#side" },
       { "from": "ns.cpp#useDeep", "to": "ns.cpp#inner::deep" },
-      { "from": "ns.cpp#useDeep", "to": "unresolved#deep" }
+      { "from": "ns.cpp#useDeep", "to": "unresolved#deep" },
+      { "from": "ns.cpp#viaUsing", "to": "unresolved#side" },
+      { "from": "ns.cpp#viaUsing", "to": "unresolved#helper" },
+      { "from": "ns.cpp#useDup", "to": "ns.cpp#one::dup" },
+      { "from": "ns.cpp#useDup", "to": "ns.cpp#two::dup" }
     ]
   },
   "reachability": [
     {
       "target": "main",
       "mustReach": ["ns.cpp#compute", "ns.cpp#geometry::area", "ns.cpp#geometry::side"],
-      "mustNotReach": ["ns.cpp#text::helper", "ns.cpp#outer::inner::deep", "ns.cpp#useDeep"]
+      "mustNotReach": ["ns.cpp#text::helper", "ns.cpp#outer::inner::deep", "ns.cpp#useDeep", "ns.cpp#viaUsing", "ns.cpp#useDup"]
     }
   ]
 }
