@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { analyzerBuilt, dotnetAvailable } from "../src/providers/csharp.js";
+
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RUNNER = path.join(REPO_ROOT, "eval", "measureColdStart.ts");
 const BASELINES = path.join(REPO_ROOT, "eval", "baselines.json");
@@ -49,11 +51,23 @@ const ALL_TARGETS = (
 
 // 'large' is a 1000-file synthetic SCALING probe (generates + builds a temp repo in a fresh
 // subprocess) — opt-in via CCM_COLDSTART_LARGE so it never taxes the local edit-test loop. CI
-// sets the flag (ci.yml) so the count-scaling / O(n²) guard still runs on every PR. The cheap
-// targets (cpp-namespaces, self) always run.
+// sets the flag (ci.yml) so the count-scaling / O(n²) guard still runs on every PR.
+// 'csharp-small' measures the ROSLYN sidecar warm-up — the heaviest cold-start driver ADR 0034
+// names alongside the TS Program. It gates the PER-SESSION cold start (sidecar process spawn + JIT
+// + first compilation), which is only well-defined once the sidecar dll is already built — so it
+// runs only where the .NET SDK exists AND the sidecar is pre-built (CI pre-builds it in ci.yml; a
+// dev builds it once). On a pristine machine it SKIPS rather than triggering a minutes-long NuGet
+// build inside a latency gate (which would mis-measure the one-time build, not the cold start).
+// The always-on targets (cpp-namespaces = WASM grammar load, self = real multi-language) need no
+// precondition.
 const RUN_LARGE = Boolean(process.env.CCM_COLDSTART_LARGE);
+const ROSLYN_READY = dotnetAvailable() && analyzerBuilt();
 const TARGETS = Object.fromEntries(
-  Object.entries(ALL_TARGETS).filter(([name]) => name !== "large" || RUN_LARGE)
+  Object.entries(ALL_TARGETS).filter(([name]) => {
+    if (name === "large") return RUN_LARGE;
+    if (name === "csharp-small") return ROSLYN_READY;
+    return true;
+  })
 );
 
 /** Build `target` in a fresh node process (true cold start) and return its measurement. */
@@ -84,8 +98,8 @@ function measureColdStart(target: string): ColdStartMeasurement {
 
 describe("cold-start latency SLA (ADR 0034 S4)", () => {
   // One gated `it` per budgeted target. cpp-namespaces exercises the WASM tree-sitter grammar
-  // load; self (this repo) exercises the realistic multi-language TS-Program + WASM + walk cost;
-  // large (CI-only, see RUN_LARGE above) exercises count-scaling over a 1000-file synthetic repo.
+  // load; self (this repo) the realistic multi-language TS-Program + WASM + walk cost; csharp-small
+  // (dotnet-gated) the Roslyn sidecar warm-up; large (CI-only, see RUN_LARGE) count-scaling.
   for (const [target, budget] of Object.entries(TARGETS)) {
     it(`${target}: fresh-process cold start stays under the SLA`, () => {
       const measured = measureColdStart(target);
