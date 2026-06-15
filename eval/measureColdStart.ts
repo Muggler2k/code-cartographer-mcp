@@ -33,9 +33,11 @@ import type { ExclusionConfig } from "../src/scope.js";
 
 const EVAL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(EVAL_DIR, "..");
-// Calibrated against eval/baselines.json → coldStartSla.targets.large (devBaselineMs ~520 /
-// slaMs 8000 at this count). Changing it re-bases the build time — update both together.
-const LARGE_FILE_COUNT = 1000;
+// A genuinely large repo on the file-COUNT axis (~5000 files → ~10k nodes, ~2.2s cold start on
+// dev). Calibrated against eval/baselines.json → coldStartSla.targets.large (devBaselineMs ~2225 /
+// slaMs 16000 at this count). Changing it re-bases the build time — update both together. Count is
+// the one axis a synthetic repo tests faithfully; real complexity-at-scale needs a real repo.
+const LARGE_FILE_COUNT = 5000;
 
 /**
  * Generate a synthetic repo of LARGE_FILE_COUNT trivial TS files in a temp dir. Each file

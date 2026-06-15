@@ -49,7 +49,7 @@ const ALL_TARGETS = (
   JSON.parse(readFileSync(BASELINES, "utf8")) as { coldStartSla: { targets: Record<string, Budget> } }
 ).coldStartSla.targets;
 
-// 'large' is a 1000-file synthetic SCALING probe (generates + builds a temp repo in a fresh
+// 'large' is a ~5000-file synthetic SCALING probe (generates + builds a temp repo in a fresh
 // subprocess) — opt-in via CCM_COLDSTART_LARGE so it never taxes the local edit-test loop. CI
 // sets the flag (ci.yml) so the count-scaling / O(n²) guard still runs on every PR.
 // 'csharp-small' measures the ROSLYN sidecar warm-up — the heaviest cold-start driver ADR 0034
