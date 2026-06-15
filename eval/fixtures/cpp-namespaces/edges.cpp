@@ -22,3 +22,20 @@ void step() {}                              // free fn colliding with the member
 
 int useAnon() { return anonFn(); }          // anonFn (lib.cpp anon namespace) has internal linkage -> unresolved
 
+struct Svc3 { void run3(); void poke(); };
+void Svc3::run3() { poke(); }               // poke() is a DECLARED-only member of Svc3 -> unresolved, NOT free poke()
+void poke() {}                              // free fn colliding with the declared-only member Svc3::poke
+
+struct RefHolder { int& acquire(); void run4(); };
+void RefHolder::run4() { acquire(); }       // acquire() is a reference-return DECLARED-only member -> unresolved, NOT free acquire()
+int acquire() { return 0; }                 // value-return free fn, same name (the &-declarator quirk would over-resolve without the fix)
+
+struct Tmpl { template<class T> void emit(); void run5(); };
+void Tmpl::run5() { emit(); }               // emit() is a TEMPLATED declared-only member (template_declaration) -> unresolved, NOT free emit()
+void emit() {}                              // free fn colliding with the templated member Tmpl::emit
+
+struct Frd { friend void buddy(); void run6(); };
+void Frd::run6() { buddy(); }               // buddy() is a FRIEND (not a member) -> resolves to the free buddy(), NOT unresolved
+void buddy() {}
+
+

@@ -1,5 +1,5 @@
 {
-  "_comment": "Epic N (ADR 0035) N-S3 — C++ namespace + `using` + cross-file namespace resolution on the tree-sitter floor (ceiling `likely`). A function inside `namespace ns { }` is qualified `ns::f` (decl pass treats the namespace as an enclosing scope, like a class in N-S1), accumulating through nesting (`outer::inner::deep`). A bare call from WITHIN the namespace resolves enclosing-first: `side()` inside `geometry::area` -> `geometry::side`. A SCOPED call binds to the declaration whose node id is the call's FULL `::`-path: `compute -> geometry::area`, `main -> geometry::side`, and `useDeep -> outer::inner::deep` (NOT the unrelated `inner::deep` of `struct inner` — full-path match, no 2-segment collision). A scoped call whose target is NOT in this file binds CROSS-FILE to the unique same-directory namespace-member definition: `useRemote -> lib.cpp#remote::fetch` (the N-S2 dir-as-module proxy extended to namespace members; class members are NOT indexed; ambiguous/cross-dir stays `unresolved`). Only functions whose qualified name comes from their ENCLOSING scope are indexed — an OUT-OF-LINE member definition (`int Gadget::spin(){}` at file scope) is NOT a cross-file target, so `useGadget`'s `Gadget::spin()` stays `unresolved` (conservative: never over-resolve a member call). CROSS-DIRECTORY: a same-dir miss binds via the `#include` graph — `ns.cpp` `#include \"sub/deep.h\"`, whose sibling source `sub/deep.cpp` defines `farns::compute`, so `useFar -> sub/deep.cpp#farns::compute` resolves across the `sub/` boundary (only when exactly one include-connected file defines the name). `using` declarations resolve bare calls: `using geometry::side;` makes `viaUsing`'s bare `side()` -> `geometry::side`, and `using namespace text;` makes bare `helper()` -> `text::helper` (file-scoped approximation; bound only when the member is declared in-file; >1 used namespace declaring a name stays `unresolved`). CONFLICTING using-declarations (`using one::dup;` + `using two::dup;`) are AMBIGUOUS, so `useDup`'s bare `dup()` stays `unresolved` — never a guess. `text::helper` is unreachable from `main`. An unknown scope/name stays `unresolved`. OVER-RESOLUTION regressions (`edges.cpp`, from the ADR 0035 adversarial audit — a false edge is worse than `unresolved`): a `.`/`->` member call (`conn->send()`, `conn.send()`) stays `unresolved`, never binds to a same-named free function; a constructor `Box()` is NOT a call edge to the `Box` class node; an explicit-global `::glob()` binds to the free `glob`, never the same-named member `Holder::glob`; an OUT-OF-LINE member body `Svc2::run2(){ step(); }` resolves `step()` to the member `Svc2::step` (member-first via the restored class scope), never the same-named free `step()`; and an ANONYMOUS-namespace function (`lib.cpp`'s `anonFn`, internal linkage) is never resolvable cross-file, so `useAnon`'s `anonFn()` stays `unresolved`.",
+  "_comment": "Epic N (ADR 0035) N-S3 — C++ namespace + `using` + cross-file namespace resolution on the tree-sitter floor (ceiling `likely`). A function inside `namespace ns { }` is qualified `ns::f` (decl pass treats the namespace as an enclosing scope, like a class in N-S1), accumulating through nesting (`outer::inner::deep`). A bare call from WITHIN the namespace resolves enclosing-first: `side()` inside `geometry::area` -> `geometry::side`. A SCOPED call binds to the declaration whose node id is the call's FULL `::`-path: `compute -> geometry::area`, `main -> geometry::side`, and `useDeep -> outer::inner::deep` (NOT the unrelated `inner::deep` of `struct inner` — full-path match, no 2-segment collision). A scoped call whose target is NOT in this file binds CROSS-FILE to the unique same-directory namespace-member definition: `useRemote -> lib.cpp#remote::fetch` (the N-S2 dir-as-module proxy extended to namespace members; class members are NOT indexed; ambiguous/cross-dir stays `unresolved`). Only functions whose qualified name comes from their ENCLOSING scope are indexed — an OUT-OF-LINE member definition (`int Gadget::spin(){}` at file scope) is NOT a cross-file target, so `useGadget`'s `Gadget::spin()` stays `unresolved` (conservative: never over-resolve a member call). CROSS-DIRECTORY: a same-dir miss binds via the `#include` graph — `ns.cpp` `#include \"sub/deep.h\"`, whose sibling source `sub/deep.cpp` defines `farns::compute`, so `useFar -> sub/deep.cpp#farns::compute` resolves across the `sub/` boundary (only when exactly one include-connected file defines the name). `using` declarations resolve bare calls: `using geometry::side;` makes `viaUsing`'s bare `side()` -> `geometry::side`, and `using namespace text;` makes bare `helper()` -> `text::helper` (file-scoped approximation; bound only when the member is declared in-file; >1 used namespace declaring a name stays `unresolved`). CONFLICTING using-declarations (`using one::dup;` + `using two::dup;`) are AMBIGUOUS, so `useDup`'s bare `dup()` stays `unresolved` — never a guess. `text::helper` is unreachable from `main`. An unknown scope/name stays `unresolved`. OVER-RESOLUTION regressions (`edges.cpp`, from the ADR 0035 adversarial audit — a false edge is worse than `unresolved`): a `.`/`->` member call (`conn->send()`, `conn.send()`) stays `unresolved`, never binds to a same-named free function; a constructor `Box()` is NOT a call edge to the `Box` class node; an explicit-global `::glob()` binds to the free `glob`, never the same-named member `Holder::glob`; an OUT-OF-LINE member body `Svc2::run2(){ step(); }` resolves `step()` to the member `Svc2::step` (member-first via the restored class scope), never the same-named free `step()`; and an ANONYMOUS-namespace function (`lib.cpp`'s `anonFn`, internal linkage) is never resolvable cross-file, so `useAnon`'s `anonFn()` stays `unresolved`; and a bare call to a DECLARED-but-not-defined member (`Svc3::run3(){ poke(); }` where `Svc3::poke` is declared in-class but never defined) stays `unresolved`, never over-resolving to the same-named free `poke()` (this holds for a reference-returning member too — `RefHolder::run4(){ acquire(); }` with `int& acquire()` declared-only stays `unresolved`, never the value-returning free `acquire()`).",
   "symbols": {
     "required": [
       "ns.cpp#geometry::side",
@@ -32,7 +32,15 @@
       "edges.cpp#Svc2::run2",
       "edges.cpp#step",
       "edges.cpp#useAnon",
-      "lib.cpp#anonFn"
+      "lib.cpp#anonFn",
+      "edges.cpp#Svc3::run3",
+      "edges.cpp#poke",
+      "edges.cpp#RefHolder::run4",
+      "edges.cpp#acquire",
+      "edges.cpp#Tmpl::run5",
+      "edges.cpp#emit",
+      "edges.cpp#Frd::run6",
+      "edges.cpp#buddy"
     ],
     "forbidden": []
   },
@@ -59,7 +67,15 @@
     "edges.cpp#Holder::callG": true,
     "edges.cpp#Svc2::run2": true,
     "edges.cpp#step": true,
-    "edges.cpp#useAnon": true
+    "edges.cpp#useAnon": true,
+    "edges.cpp#Svc3::run3": true,
+    "edges.cpp#poke": true,
+    "edges.cpp#RefHolder::run4": true,
+    "edges.cpp#acquire": true,
+    "edges.cpp#Tmpl::run5": true,
+    "edges.cpp#emit": true,
+    "edges.cpp#Frd::run6": true,
+    "edges.cpp#buddy": true
   },
   "edges": {
     "required": [
@@ -73,7 +89,11 @@
       { "from": "ns.cpp#main", "to": "ns.cpp#compute", "callKind": "direct", "confidence": "likely" },
       { "from": "ns.cpp#main", "to": "ns.cpp#geometry::side", "callKind": "direct", "confidence": "likely" },
       { "from": "edges.cpp#Holder::callG", "to": "edges.cpp#glob", "callKind": "direct", "confidence": "likely" },
-      { "from": "edges.cpp#Svc2::run2", "to": "edges.cpp#Svc2::step", "callKind": "direct", "confidence": "likely" }
+      { "from": "edges.cpp#Svc2::run2", "to": "edges.cpp#Svc2::step", "callKind": "direct", "confidence": "likely" },
+      { "from": "edges.cpp#Svc3::run3", "to": "unresolved#poke", "callKind": "method", "confidence": "unclear" },
+      { "from": "edges.cpp#RefHolder::run4", "to": "unresolved#acquire", "callKind": "method", "confidence": "unclear" },
+      { "from": "edges.cpp#Tmpl::run5", "to": "unresolved#emit", "callKind": "method", "confidence": "unclear" },
+      { "from": "edges.cpp#Frd::run6", "to": "edges.cpp#buddy", "callKind": "direct", "confidence": "likely" }
     ],
     "forbidden": [
       { "from": "ns.cpp#compute", "to": "unresolved#area" },
@@ -93,14 +113,17 @@
       { "from": "edges.cpp#makeBox", "to": "edges.cpp#Box" },
       { "from": "edges.cpp#Holder::callG", "to": "edges.cpp#Holder::glob" },
       { "from": "edges.cpp#Svc2::run2", "to": "edges.cpp#step" },
-      { "from": "edges.cpp#useAnon", "to": "lib.cpp#anonFn" }
+      { "from": "edges.cpp#useAnon", "to": "lib.cpp#anonFn" },
+      { "from": "edges.cpp#Svc3::run3", "to": "edges.cpp#poke" },
+      { "from": "edges.cpp#RefHolder::run4", "to": "edges.cpp#acquire" },
+      { "from": "edges.cpp#Tmpl::run5", "to": "edges.cpp#emit" }
     ]
   },
   "reachability": [
     {
       "target": "main",
       "mustReach": ["ns.cpp#compute", "ns.cpp#geometry::area", "ns.cpp#geometry::side"],
-      "mustNotReach": ["ns.cpp#text::helper", "ns.cpp#outer::inner::deep", "ns.cpp#useDeep", "ns.cpp#viaUsing", "ns.cpp#useDup", "ns.cpp#useRemote", "lib.cpp#remote::fetch", "ns.cpp#useGadget", "lib.cpp#Gadget::spin", "ns.cpp#useFar", "sub/deep.cpp#farns::compute", "edges.cpp#useArrow", "edges.cpp#makeBox", "edges.cpp#Holder::callG", "edges.cpp#glob", "edges.cpp#Svc2::run2", "edges.cpp#Svc2::step", "edges.cpp#step", "edges.cpp#useAnon", "lib.cpp#anonFn"]
+      "mustNotReach": ["ns.cpp#text::helper", "ns.cpp#outer::inner::deep", "ns.cpp#useDeep", "ns.cpp#viaUsing", "ns.cpp#useDup", "ns.cpp#useRemote", "lib.cpp#remote::fetch", "ns.cpp#useGadget", "lib.cpp#Gadget::spin", "ns.cpp#useFar", "sub/deep.cpp#farns::compute", "edges.cpp#useArrow", "edges.cpp#makeBox", "edges.cpp#Holder::callG", "edges.cpp#glob", "edges.cpp#Svc2::run2", "edges.cpp#Svc2::step", "edges.cpp#step", "edges.cpp#useAnon", "lib.cpp#anonFn", "edges.cpp#Svc3::run3", "edges.cpp#poke", "edges.cpp#RefHolder::run4", "edges.cpp#acquire", "edges.cpp#Tmpl::run5", "edges.cpp#emit", "edges.cpp#Frd::run6", "edges.cpp#buddy"]
     }
   ]
 }

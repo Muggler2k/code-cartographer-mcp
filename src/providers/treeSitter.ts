@@ -271,6 +271,30 @@ function cppFunctionName(node: SyntaxNode): string | undefined {
   return undefined;
 }
 
+/** C++ (ADR 0035): the method name of an in-class member *declaration* (`void tick();`) — a
+ * `field_declaration` whose declarator is a `function_declarator`. Returns undefined for a data
+ * member (no function_declarator). Used to track DECLARED-but-not-defined members so a bare call
+ * inside that class's body resolves to the member (or stays `unresolved`), never to a free function. */
+function cppFieldMethodName(node: SyntaxNode): string | undefined {
+  // Strip pointer/reference wrappers. A `reference_declarator` (`int& ref()`) wraps its inner
+  // declarator WITHOUT a `declarator` field name in this grammar, so fall back to the wrapped
+  // declarator/identifier child — otherwise `&`-returning members would be missed and could
+  // over-resolve to a same-named free function.
+  const unwrap = (d: SyntaxNode | null): SyntaxNode | null => {
+    while (d && (d.type === "pointer_declarator" || d.type === "reference_declarator")) {
+      d = d.childForFieldName("declarator") ?? d.namedChildren.find((c) => /declarator|identifier/.test(c.type)) ?? null;
+    }
+    return d;
+  };
+  const decl = unwrap(node.childForFieldName("declarator"));
+  if (decl?.type !== "function_declarator") return undefined;
+  const inner = unwrap(decl.childForFieldName("declarator"));
+  // Only a plain method name (`identifier`/`field_identifier`). Reject a function-POINTER data member
+  // (`void(*cb)();` → a `parenthesized_declarator`), an operator, a destructor, or a qualified id —
+  // none are callable by a bare identifier, so they need no member-decl suppression.
+  return inner && (inner.type === "identifier" || inner.type === "field_identifier") ? inner.text : undefined;
+}
+
 /** Split a callee text into name/qualifier, noting whether a `::` path (scoped) was used.
  * "pm.run" → {name:"run", qualifier:"pm", scoped:false}; "util::other" → {..., scoped:true}.
  * `scopedPath` is the FULL `::`-joined identifier path for a scoped call ("a::b::f" for `a::b::f()`,
@@ -305,6 +329,7 @@ interface FileParse {
   root: SyntaxNode;
   declNames: Set<string>;
   funcNames: Set<string>; // C++: the function-kind subset of declNames — a call edge must target a callable, never a class/enum node
+  memberDecls: Set<string>; // C++: `Type::method` for in-class method DECLARATIONS — a member-body call to a declared (maybe undefined) member stays a member, never over-resolves to a free function
   importMap: Map<string, ImportRef>; // Python: localName -> {moduleFile, origName}
   qualifierMap: Map<string, string>; // Python: alias -> moduleFile
   cppUsingAliases: Map<string, string | null>; // C++ N-S3: `using ns::f;` → bare f -> ns::f (null = ambiguous)
@@ -610,6 +635,7 @@ export const treeSitterProvider: LanguageProvider = {
 
       const declNames = new Set<string>();
       const funcNames = new Set<string>(); // function-kind names only — a call may bind to these, never to a class/enum node
+      const memberDecls = new Set<string>(); // C++: `Type::method` for in-class method declarations (declared, maybe not defined)
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
       // `enclosingIsType` (C++): are we inside a class/struct body? A namespace resets it to false.
       // Used to index namespace members + global functions into cppGlobals but NOT class members.
@@ -622,6 +648,21 @@ export const treeSitterProvider: LanguageProvider = {
         let childIsType = node.type === "namespace_definition" ? false : enclosingIsType;
         const childInternal =
           enclosingInternal || (!!config.qualifyByType && node.type === "namespace_definition" && !node.childForFieldName("name"));
+        // C++: record an in-class method DECLARATION (`void tick();`, or a templated one, which the
+        // grammar wraps as a `declaration` inside a `template_declaration`) so a bare call from the
+        // class body binds to the member (or stays `unresolved` when undefined), never a free function.
+        // A `friend` declaration (`friend void f();`) is NOT a member — exclude it (its parent node is
+        // a `friend_declaration`) so a friend-function call still resolves to the free function.
+        if (
+          config.qualifyByType &&
+          enclosingIsType &&
+          enclosingType &&
+          (node.type === "field_declaration" ||
+            (node.type === "declaration" && node.parent?.type !== "friend_declaration"))
+        ) {
+          const m = cppFieldMethodName(node);
+          if (m) memberDecls.add(`${enclosingType}::${m}`);
+        }
         if (spec) {
           const { name, kind, childType: ct } = declScope(config, spec, node, enclosingType);
           childType = ct;
@@ -674,7 +715,7 @@ export const treeSitterProvider: LanguageProvider = {
       }
 
       const imports = config.resolution === "import" ? parsePyImports(root, dirOf(file.path), fileSet) : { importMap: new Map(), qualifierMap: new Map() };
-      parses.push({ file, config, root, declNames, funcNames, ...imports, cppUsingAliases: new Map(), cppUsingNamespaces: [], cppIncludes: new Set() });
+      parses.push({ file, config, root, declNames, funcNames, memberDecls, ...imports, cppUsingAliases: new Map(), cppUsingNamespaces: [], cppIncludes: new Set() });
 
       if (file.category === "test") {
         entryPointHints.push({ path: file.path, kind: "test_entry", confidence: "candidate", reason: "test-category source file" });
@@ -747,6 +788,12 @@ export const treeSitterProvider: LanguageProvider = {
         const qualified = `${callingType}::${name}`;
         if (cppHas(qualified)) {
           return { to: `${self}#${qualified}`, kind: "direct", conf: "likely" };
+        }
+        // The name is a DECLARED member of the calling class but has no definition node here (defined
+        // out-of-line elsewhere / pure virtual / in an unanalyzed TU): it is still the MEMBER, so it
+        // stays `unresolved` rather than over-resolving to a same-named free function or same-dir global.
+        if (parse.memberDecls.has(qualified)) {
+          return { to: `unresolved#${name}`, kind: "method", conf: "unclear" };
         }
       }
       if (!qualifier && (parse.config.qualifyByType ? cppHas(name) : parse.declNames.has(name))) {
