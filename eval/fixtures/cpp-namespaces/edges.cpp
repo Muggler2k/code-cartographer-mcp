@@ -38,4 +38,17 @@ struct Frd { friend void buddy(); void run6(); };
 void Frd::run6() { buddy(); }               // buddy() is a FRIEND (not a member) -> resolves to the free buddy(), NOT unresolved
 void buddy() {}
 
+void handle() {}
+void invoke(void(*handle)()) { handle(); }  // handle is a fn-pointer PARAM shadowing the free handle() -> dynamic, unresolved
+void tickCb() {}
+void runCb() { std::function<void()> tickCb; tickCb(); }  // tickCb is a std::function LOCAL shadowing free tickCb() -> dynamic, unresolved
+struct Functor { void operator()(); };
+void doit() {}
+void useFunctor() { Functor doit; doit(); }  // doit is a functor LOCAL shadowing free doit() -> dynamic, unresolved
+void cb1() {}
+void cb2() {}
+void runMulti() { std::function<void()> cb1, cb2; cb1(); cb2(); }  // BOTH multi-declarator locals shadow -> dynamic, unresolved
+void proto() {}
+void usesProto() { void proto(); proto(); }  // local PROTOTYPE is an extern ref, NOT a callable local -> resolves to free proto()
+
 

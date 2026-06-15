@@ -295,6 +295,63 @@ function cppFieldMethodName(node: SyntaxNode): string | undefined {
   return inner && (inner.type === "identifier" || inner.type === "field_identifier") ? inner.text : undefined;
 }
 
+const DECLARATOR_WRAPPERS = /^(function_declarator|parenthesized_declarator|pointer_declarator|reference_declarator|init_declarator|array_declarator)$/;
+
+/** C++ (ADR 0035): descend a declarator node (`int n`, `void(*cb)()`, `const Foo& f`,
+ * `std::function<…> g = …`, `Adder a;`) to the innermost plain identifier, or undefined (abstract/unnamed). */
+function declaratorId(d: SyntaxNode | null): string | undefined {
+  for (let guard = 0; d && DECLARATOR_WRAPPERS.test(d.type) && guard < 24; guard++) {
+    d = d.childForFieldName("declarator") ?? d.namedChildren.find((c) => DECLARATOR_WRAPPERS.test(c.type) || c.type === "identifier" || c.type === "field_identifier") ?? null;
+  }
+  return d && (d.type === "identifier" || d.type === "field_identifier") ? d.text : undefined;
+}
+
+/** C++ (ADR 0035): the names a `function_definition` introduces into its own scope — parameters plus
+ * local variable declarations in its body (NOT descending into nested functions/lambdas, which own
+ * their scope). A bare call to one of these is a call THROUGH that local (a function-pointer param, a
+ * `std::function`, a functor) — an indirect/dynamic dispatch, not a free function — so the resolver
+ * leaves it `unresolved` rather than over-resolving to a same-named global. All declarators of a
+ * multi-declarator statement (`std::function f, g;`) are captured. The set is whole-function (not
+ * declaration-order scoped) — a call before its shadowing local is still suppressed, which errs toward
+ * honest `unresolved`, never a false edge. A local function PROTOTYPE (`void helper();` — an `extern`
+ * ref to the free function, not a callable variable) is NOT a shadow. Two grammar-level under-captures
+ * remain (rare; they leave the pre-existing behavior, not a new false edge from this change): a bare
+ * function-pointer LOCAL (`void(*cb)();`) is parsed as an expression (most-vexing-parse), and a
+ * structured binding (`auto [a,b] = …`) uses a declarator shape we don't unwrap. */
+function cppCollectShadows(funcDef: SyntaxNode): Set<string> {
+  const shadows = new Set<string>();
+  let fd: SyntaxNode | null = funcDef.childForFieldName("declarator");
+  while (fd && (fd.type === "pointer_declarator" || fd.type === "reference_declarator")) fd = fd.childForFieldName("declarator");
+  const params = fd?.type === "function_declarator" ? fd.namedChildren.find((c) => c.type === "parameter_list") : null;
+  if (params) for (const c of params.namedChildren) if (c.type === "parameter_declaration") {
+    const nm = declaratorId(c.childForFieldName("declarator"));
+    if (nm) shadows.add(nm);
+  }
+  const body = funcDef.childForFieldName("body");
+  const walk = (n: SyntaxNode): void => {
+    if (n.type === "function_definition" || n.type === "lambda_expression") return; // own scope
+    if (n.type === "declaration") {
+      // Each declarator of the statement (`int a, b;` → a AND b). The type specifier is a
+      // `type_identifier`/`primitive_type`/`qualified_identifier`, never a declarator/identifier. A
+      // top-level `function_declarator` is a local function PROTOTYPE (`void helper();`), not a
+      // callable variable — skip it so the call still resolves to the free function.
+      for (const d of n.namedChildren) {
+        if (d.type === "function_declarator") continue;
+        if (DECLARATOR_WRAPPERS.test(d.type) || d.type === "identifier" || d.type === "field_identifier") {
+          const nm = declaratorId(d);
+          if (nm) shadows.add(nm);
+        }
+      }
+    }
+    for (let i = 0; i < n.childCount; i++) {
+      const c = n.child(i);
+      if (c) walk(c);
+    }
+  };
+  if (body) walk(body);
+  return shadows;
+}
+
 /** Split a callee text into name/qualifier, noting whether a `::` path (scoped) was used.
  * "pm.run" → {name:"run", qualifier:"pm", scoped:false}; "util::other" → {..., scoped:true}.
  * `scopedPath` is the FULL `::`-joined identifier path for a scoped call ("a::b::f" for `a::b::f()`,
@@ -771,10 +828,18 @@ export const treeSitterProvider: LanguageProvider = {
     const resolveCallee = (
       parse: FileParse,
       parsed: { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null; globalScoped: boolean },
-      callingType: string | null
+      callingType: string | null,
+      shadows: Set<string>
     ): { to: string; kind: CallEdgeKind; conf: Confidence } => {
       const { name, qualifier, scoped, scopedPath, globalScoped } = parsed;
       const self = parse.file.path;
+      // C++ (ADR 0035): a bare `name()` where `name` is a PARAMETER or LOCAL of the enclosing function
+      // (a function-pointer param, a `std::function`, a functor) is an INDIRECT/dynamic dispatch through
+      // that local — NOT a call to a same-named free function. Grade it `dynamic`/`unclear` and leave it
+      // `unresolved`, never over-resolving to a global. (A local hides an outer name — C++ name lookup.)
+      if (parse.config.qualifyByType && !qualifier && !scoped && shadows.has(name)) {
+        return { to: `unresolved#${name}`, kind: "dynamic", conf: "unclear" };
+      }
       // C++: a call edge must target a CALLABLE — a function-kind node, never a class/enum (a
       // constructor call `Widget()` is not an edge to the `Widget` type node). For other languages the
       // intra-file check below keeps using `declNames` unchanged.
@@ -899,7 +964,7 @@ export const treeSitterProvider: LanguageProvider = {
     for (const parse of parses) {
       const { config, file } = parse;
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
-      const visitEdges = (node: SyntaxNode, enclosing: string | null, enclosingType: string | null): void => {
+      const visitEdges = (node: SyntaxNode, enclosing: string | null, enclosingType: string | null, shadows: Set<string>): void => {
         let nextEnclosing = enclosing;
         let childType = cppChildScope(config, node, enclosingType); // C++ N-S3: namespace scope
         const spec = declSpecFor(node);
@@ -909,12 +974,20 @@ export const treeSitterProvider: LanguageProvider = {
           childType = ct;
           if (name) nextEnclosing = `${file.path}#${name}`;
         }
+        // C++: a function definition introduces its params + locals — names a bare call binds to as an
+        // indirect dispatch (fn-pointer / `std::function` / functor), not a free function. Union with
+        // any inherited shadows (nested functions/lambdas own their scope, so they extend it).
+        let childShadows = shadows;
+        if (config.qualifyByType && node.type === "function_definition") {
+          const own = cppCollectShadows(node);
+          if (own.size) childShadows = shadows.size ? new Set([...shadows, ...own]) : own;
+        }
         if (config.callNodeTypes.includes(node.type) && nextEnclosing) {
           const callee = node.childForFieldName(config.calleeField);
           const parsed = callee ? splitCallee(callee.text) : null;
           if (parsed) {
             // The call's enclosing TYPE (C++ scope-aware resolution); null outside a class.
-            const { to, kind, conf } = resolveCallee(parse, parsed, enclosingType);
+            const { to, kind, conf } = resolveCallee(parse, parsed, enclosingType, childShadows);
             const key = `${nextEnclosing}|${to}|${kind}`;
             if (!seenEdgeKeys.has(key)) {
               seenEdgeKeys.add(key);
@@ -935,10 +1008,10 @@ export const treeSitterProvider: LanguageProvider = {
         }
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
-          if (child) visitEdges(child, nextEnclosing, childType);
+          if (child) visitEdges(child, nextEnclosing, childType, childShadows);
         }
       };
-      visitEdges(parse.root, null, null);
+      visitEdges(parse.root, null, null, new Set());
     }
 
     return { declarations, ownershipSignals, entryPointHints, callEdges };
