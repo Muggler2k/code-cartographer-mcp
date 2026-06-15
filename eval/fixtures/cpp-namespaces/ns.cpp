@@ -1,3 +1,4 @@
+#include "sub/deep.h"                      // cross-DIRECTORY include: sub/deep.cpp defines farns::compute
 namespace geometry {
   int side() { return 4; }
   int area() { return side() * side(); }   // bare side() inside geometry -> geometry::side (enclosing-first, N-S3)
@@ -39,6 +40,10 @@ int useDup() {
 
 int useRemote() {
   return remote::fetch();                   // cross-FILE namespace call -> lib.cpp#remote::fetch (N-S3 cross-file)
+}
+
+int useFar() {
+  return farns::compute();                 // cross-DIRECTORY -> sub/deep.cpp#farns::compute (via #include)
 }
 
 int useGadget() {
