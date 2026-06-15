@@ -293,6 +293,8 @@ interface FileParse {
   declNames: Set<string>;
   importMap: Map<string, ImportRef>; // Python: localName -> {moduleFile, origName}
   qualifierMap: Map<string, string>; // Python: alias -> moduleFile
+  cppUsingAliases: Map<string, string | null>; // C++ N-S3: `using ns::f;` → bare f -> ns::f (null = ambiguous)
+  cppUsingNamespaces: string[]; // C++ N-S3: `using namespace ns;`
 }
 
 /** Resolve a Python module spec to a file in the owned set, or null. */
@@ -465,6 +467,44 @@ function parseRustUses(root: SyntaxNode, rustModules: Map<string, string>, decls
   return importMap;
 }
 
+/**
+ * C++ N-S3 (ADR 0035): parse `using` declarations into two file-scoped maps.
+ *   `using ns::f;`        (using-declaration) → aliases: bare `f` -> the full path `ns::f`.
+ *   `using namespace ns;` (using-directive)   → namespaces: a bare name may bind to `ns::name`.
+ * A file-scoped approximation (no per-block scope tracking) — the common case for a tree-sitter
+ * tier; the resolver clamps to `likely` and only binds when the target is declared in this file, so
+ * an over-broad `using` never fabricates a cross-file edge. Whitespace is stripped to match node ids.
+ */
+function parseCppUsings(root: SyntaxNode): { aliases: Map<string, string | null>; namespaces: string[] } {
+  // alias value `null` = AMBIGUOUS: two `using`s bind the same bare name to different paths (C++ would
+  // be ill-formed) → the resolver must NOT guess, mirroring the using-directive `length === 1` guard.
+  const aliases = new Map<string, string | null>();
+  const namespaces: string[] = [];
+  const walk = (node: SyntaxNode): void => {
+    if (node.type === "using_declaration") {
+      const isDirective = node.children.some((c) => c.type === "namespace");
+      const ref = node.children.find((c) => c.type === "qualified_identifier" || c.type === "identifier");
+      const text = ref?.text.replace(/\s+/g, "");
+      if (text) {
+        if (isDirective) {
+          if (!namespaces.includes(text)) namespaces.push(text);
+        } else if (text.includes("::")) {
+          const key = lastColonSegment(text);
+          const prior = aliases.get(key);
+          if (prior === undefined) aliases.set(key, text);
+          else if (prior !== text) aliases.set(key, null); // conflicting `using`s → ambiguous
+        }
+      }
+    }
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i);
+      if (child) walk(child);
+    }
+  };
+  walk(root);
+  return { aliases, namespaces };
+}
+
 export const treeSitterProvider: LanguageProvider = {
   id: "tree-sitter",
   maxConfidence: "likely",
@@ -567,7 +607,7 @@ export const treeSitterProvider: LanguageProvider = {
       }
 
       const imports = config.resolution === "import" ? parsePyImports(root, dirOf(file.path), fileSet) : { importMap: new Map(), qualifierMap: new Map() };
-      parses.push({ file, config, root, declNames, ...imports });
+      parses.push({ file, config, root, declNames, ...imports, cppUsingAliases: new Map(), cppUsingNamespaces: [] });
 
       if (file.category === "test") {
         entryPointHints.push({ path: file.path, kind: "test_entry", confidence: "candidate", reason: "test-category source file" });
@@ -590,6 +630,10 @@ export const treeSitterProvider: LanguageProvider = {
         parse.qualifierMap = parseGoImports(parse.root, ownedGoDirs);
       } else if (parse.config.resolution === "module") {
         parse.importMap = parseRustUses(parse.root, rustModules, declsByFile);
+      } else if (parse.config.qualifyByType) {
+        const u = parseCppUsings(parse.root); // C++ N-S3: `using` declarations/directives
+        parse.cppUsingAliases = u.aliases;
+        parse.cppUsingNamespaces = u.namespaces;
       }
     }
 
@@ -613,6 +657,21 @@ export const treeSitterProvider: LanguageProvider = {
       }
       if (!qualifier && parse.declNames.has(name)) {
         return { to: `${self}#${name}`, kind: "direct", conf: "likely" };
+      }
+      // C++ N-S3 (ADR 0035): `using`-imported names. An explicit `using ns::f;` makes a bare `f()`
+      // resolve to its `ns::f` declaration (most specific); a `using namespace ns;` makes a bare
+      // `name()` resolve to `ns::name` when that member is declared in THIS file. Intra-file,
+      // file-scoped approximation; if >1 used namespace declares `name` it stays `unresolved` (C++
+      // would be an ambiguity error) — never a guess. `likely`. qualifyByType-gated.
+      if (parse.config.qualifyByType && !qualifier) {
+        const alias = parse.cppUsingAliases.get(name);
+        if (alias && parse.declNames.has(alias)) {
+          return { to: `${self}#${alias}`, kind: "direct", conf: "likely" };
+        }
+        const viaNs = parse.cppUsingNamespaces.map((ns) => `${ns}::${name}`).filter((q) => parse.declNames.has(q));
+        if (viaNs.length === 1) {
+          return { to: `${self}#${viaNs[0]}`, kind: "direct", conf: "likely" };
+        }
       }
       // C++ N-S2 (ADR 0035): a bare call the intra-file pass didn't resolve binds to the UNIQUE
       // global (non-static, free) definition of that name in another file — the header-declares /
