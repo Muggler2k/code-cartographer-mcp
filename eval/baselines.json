@@ -32,7 +32,7 @@
       "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
     },
     "cpp-namespaces": {
-      "structural": { "files": 5, "nodes": 47, "edges": 21, "summaryChars": 3379, "summaryCharsTolerancePct": 20 },
+      "structural": { "files": 5, "nodes": 59, "edges": 27, "summaryChars": 3379, "summaryCharsTolerancePct": 20 },
       "softCeilingsMs": { "init": 5000, "indexBuild": 5000 }
     },
     "csharp-small": {
