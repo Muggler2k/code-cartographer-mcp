@@ -1,5 +1,5 @@
 {
-  "_comment": "Epic N (ADR 0035). N-S1 LANDED: C++ methods are qualified by their enclosing class (`Calculator::run` is distinct from `Widget::run`) and the intra-file resolver is scope-aware (a bare `tick()` inside `Widget::run` resolves to `Widget::tick`, not Calculator's). Ceiling stays `likely` (tree-sitter, no type system). The cross-file #include edge (total -> shared_util) is still honestly `unresolved`, with the resolved edge to util.cpp#shared_util FORBIDDEN — N-S2 (header-aware resolution) will flip both, updating this golden consciously. The private non-static `value()` is omitted from `exported` — the coarse `!static` heuristic over-reports it as exported; a later stage may refine access-specifier grading.",
+  "_comment": "Epic N (ADR 0035). N-S1 + N-S2 LANDED. N-S1: C++ methods are qualified by their enclosing class (`Calculator::run` distinct from `Widget::run`); the intra-file resolver is scope-aware (a bare `tick()` inside `Widget::run` resolves to `Widget::tick`, not Calculator's). N-S2: a call the intra-file pass can't resolve binds to the UNIQUE non-static free-function definition in another file (`total -> util.cpp#shared_util` is now a resolved `direct/likely` cross-file edge — header-declares/.cpp-defines/called-elsewhere via C++ global linkage), so `main` reaches the cross-file functions. Ceiling stays `likely` (tree-sitter, no type system); ambiguous (overloaded) or undefined names stay `unresolved`. The private non-static `value()` is omitted from `exported` — the coarse `!static` heuristic over-reports it; a later stage may refine access-specifier grading.",
   "symbols": {
     "required": [
       "calc.cpp#Calculator",
@@ -34,18 +34,18 @@
       { "from": "calc.cpp#total", "to": "calc.cpp#helper", "callKind": "direct", "confidence": "likely" },
       { "from": "calc.cpp#main", "to": "calc.cpp#total", "callKind": "direct", "confidence": "likely" },
       { "from": "util.cpp#shared_util", "to": "util.cpp#helper_internal", "callKind": "direct", "confidence": "likely" },
-      { "from": "calc.cpp#total", "to": "unresolved#shared_util", "callKind": "unresolved", "confidence": "unresolved" }
+      { "from": "calc.cpp#total", "to": "util.cpp#shared_util", "callKind": "direct", "confidence": "likely" }
     ],
     "forbidden": [
-      { "from": "calc.cpp#total", "to": "util.cpp#shared_util" },
-      { "from": "calc.cpp#Widget::run", "to": "calc.cpp#Calculator::step" }
+      { "from": "calc.cpp#Widget::run", "to": "calc.cpp#Calculator::step" },
+      { "from": "calc.cpp#total", "to": "unresolved#shared_util" }
     ]
   },
   "reachability": [
     {
       "target": "main",
-      "mustReach": ["calc.cpp#total", "calc.cpp#helper"],
-      "mustNotReach": ["util.cpp#helper_internal"]
+      "mustReach": ["calc.cpp#total", "calc.cpp#helper", "util.cpp#shared_util", "util.cpp#helper_internal"],
+      "mustNotReach": ["calc.cpp#Widget::tick"]
     }
   ]
 }
