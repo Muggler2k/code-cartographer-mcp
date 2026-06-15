@@ -1,12 +1,12 @@
 # Architecture & Tech-Stack Design Brief
 
-_Last updated: 2026-06-11 · Status: **design ratified and implemented** (decisions D1–D8 resolved; see §5)_
+_Last updated: 2026-06-14 · Status: **design ratified and implemented** (decisions D1–D8 resolved; see §5)_
 
 This document records the architecture and tech-stack design for the engine. It
 consolidates the constraints, the component model, and the design decisions —
-all of which are now **resolved and implemented** (Epics A–M + Q + O; ADRs 0008–0032,
+all of which are now **resolved and implemented** (Epics A–M + Q + O; ADRs 0008–0035,
 incl. the static path-finding + derived SQLite graph index of ADR 0023, the
-internal-seams reorganization of ADR 0025, findings derivation v2 of ADR 0026, the optional C# Roslyn provider tier of ADR 0027 (deepened by ADR 0032: host-SDK references + data-member ownership), and diff/PR mode of ADR 0031).
+internal-seams reorganization of ADR 0025, findings derivation v2 of ADR 0026, the optional C# Roslyn provider tier of ADR 0027 (deepened by ADR 0032: host-SDK references + data-member ownership), diff/PR mode of ADR 0031, the Visual Basic tier of ADR 0033, production validation of ADR 0034, and the Epic N C++ tree-sitter tier of ADR 0035 (N-S1 method qualification + N-S2 same-directory cross-file resolution)).
 The decision table in §5 carries the resolution for each open question; D5
 (dependency pins) is the only item with a residual release-prep tail.
 
