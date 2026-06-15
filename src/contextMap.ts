@@ -252,6 +252,17 @@ export interface InitTimings {
   providers: ProviderTiming[];
 }
 
+/**
+ * Append every element of `source` onto `target` in place. NOT `target.push(...source)`: a spread
+ * call passes each element as a separate ARGUMENT, and V8 caps the argument count (~65k), so
+ * `push(...bigArray)` throws `RangeError: Maximum call stack size exceeded` on a large repo (e.g.
+ * a provider emitting >65k call edges). A loop has no such ceiling — this keeps the build
+ * degrade-never-throw at scale (ADR 0034 S1).
+ */
+function appendAll<T>(target: T[], source: readonly T[]): void {
+  for (let i = 0; i < source.length; i++) target.push(source[i]);
+}
+
 /** Run every provider over its owned files and aggregate, clamping each record to the provider ceiling. */
 async function runProviders(repositoryRoot: string, files: FileEntry[], timings?: ProviderTiming[]): Promise<ProviderExtraction> {
   const aggregate: ProviderExtraction = { declarations: [], ownershipSignals: [], entryPointHints: [], callEdges: [] };
@@ -267,10 +278,10 @@ async function runProviders(repositoryRoot: string, files: FileEntry[], timings?
     }
     timings?.push({ id: provider.id, files: providerFiles.length, ms: Date.now() - started });
     const clamped = clampExtraction(extraction, provider.maxConfidence);
-    aggregate.declarations.push(...clamped.declarations);
-    aggregate.ownershipSignals.push(...clamped.ownershipSignals);
-    aggregate.entryPointHints.push(...clamped.entryPointHints);
-    aggregate.callEdges.push(...clamped.callEdges);
+    appendAll(aggregate.declarations, clamped.declarations);
+    appendAll(aggregate.ownershipSignals, clamped.ownershipSignals);
+    appendAll(aggregate.entryPointHints, clamped.entryPointHints);
+    appendAll(aggregate.callEdges, clamped.callEdges);
   }
   aggregate.declarations.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   aggregate.ownershipSignals.sort((a, b) => (`${a.path}#${a.symbol}` < `${b.path}#${b.symbol}` ? -1 : 1));
