@@ -267,18 +267,22 @@ function cppFunctionName(node: SyntaxNode): string | undefined {
  * `scopedPath` is the FULL `::`-joined identifier path for a scoped call ("a::b::f" for `a::b::f()`,
  * template args/whitespace stripped), else null — C++ N-S3 matches it against `declNames` so a deep
  * `a::b::f()` binds to its `a::b::f` node and never collides with an unrelated 2-segment `b::f`. */
-function splitCallee(text: string): { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null } | null {
+function splitCallee(text: string): { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null; globalScoped: boolean } | null {
+  // `member` access (`.` / `->`) is NOT `::` scope: a member/pointer call `obj.f()` / `ptr->f()`
+  // carries a qualifier (the object) and stays unresolved at this tier — splitting on `->` too keeps
+  // `ptr->f` from collapsing to the pointer variable `ptr` (which could collide with a free function).
   const scoped = text.includes("::");
-  const parts = text.split(/::|\./);
+  const globalScoped = /^\s*::/.test(text); // explicit global-scope operator `::f()` — bind only to a global
+  const parts = text.split(/::|\.|->/);
   const name = parts[parts.length - 1].match(/[A-Za-z_]\w*/)?.[0];
   if (!name) return null;
   const qualifier = parts.length >= 2 ? (parts[parts.length - 2].match(/[A-Za-z_]\w*/)?.[0] ?? null) : null;
   let scopedPath: string | null = null;
-  if (scoped && !text.includes(".")) {
+  if (scoped && !text.includes(".") && !text.includes("->")) {
     const idents = text.split("::").map((p) => p.match(/[A-Za-z_]\w*/)?.[0]);
     if (idents.length >= 2 && idents.every((id): id is string => Boolean(id))) scopedPath = idents.join("::");
   }
-  return { name, qualifier, scoped, scopedPath };
+  return { name, qualifier, scoped, scopedPath, globalScoped };
 }
 
 interface ImportRef {
@@ -291,6 +295,7 @@ interface FileParse {
   config: LangConfig;
   root: SyntaxNode;
   declNames: Set<string>;
+  funcNames: Set<string>; // C++: the function-kind subset of declNames — a call edge must target a callable, never a class/enum node
   importMap: Map<string, ImportRef>; // Python: localName -> {moduleFile, origName}
   qualifierMap: Map<string, string>; // Python: alias -> moduleFile
   cppUsingAliases: Map<string, string | null>; // C++ N-S3: `using ns::f;` → bare f -> ns::f (null = ambiguous)
@@ -595,6 +600,7 @@ export const treeSitterProvider: LanguageProvider = {
       }
 
       const declNames = new Set<string>();
+      const funcNames = new Set<string>(); // function-kind names only — a call may bind to these, never to a class/enum node
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
       // `enclosingIsType` (C++): are we inside a class/struct body? A namespace resets it to false.
       // Used to index namespace members + global functions into cppGlobals but NOT class members.
@@ -609,6 +615,7 @@ export const treeSitterProvider: LanguageProvider = {
           if (name) {
             const id = `${file.path}#${name}`;
             declNames.add(name);
+            if (kind === "function") funcNames.add(name);
             if (!seenNodeIds.has(id)) {
               seenNodeIds.add(id);
               declarations.push({ id, symbol: name, path: file.path, kind, confidence: "confirmed" });
@@ -653,7 +660,7 @@ export const treeSitterProvider: LanguageProvider = {
       }
 
       const imports = config.resolution === "import" ? parsePyImports(root, dirOf(file.path), fileSet) : { importMap: new Map(), qualifierMap: new Map() };
-      parses.push({ file, config, root, declNames, ...imports, cppUsingAliases: new Map(), cppUsingNamespaces: [], cppIncludes: new Set() });
+      parses.push({ file, config, root, declNames, funcNames, ...imports, cppUsingAliases: new Map(), cppUsingNamespaces: [], cppIncludes: new Set() });
 
       if (file.category === "test") {
         entryPointHints.push({ path: file.path, kind: "test_entry", confidence: "candidate", reason: "test-category source file" });
@@ -708,35 +715,41 @@ export const treeSitterProvider: LanguageProvider = {
     };
     const resolveCallee = (
       parse: FileParse,
-      parsed: { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null },
+      parsed: { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null; globalScoped: boolean },
       callingType: string | null
     ): { to: string; kind: CallEdgeKind; conf: Confidence } => {
-      const { name, qualifier, scoped, scopedPath } = parsed;
+      const { name, qualifier, scoped, scopedPath, globalScoped } = parsed;
       const self = parse.file.path;
+      // C++: a call edge must target a CALLABLE — a function-kind node, never a class/enum (a
+      // constructor call `Widget()` is not an edge to the `Widget` type node). For other languages the
+      // intra-file check below keeps using `declNames` unchanged.
+      const cppHas = (n: string): boolean => parse.funcNames.has(n);
       // C++ N-S1 (ADR 0035): an unqualified call from inside `Type` resolves to that type's
       // `Type::name` member FIRST — a class member hides a namespace-scope function of the same name
       // (C++ unqualified name lookup). Additive + qualifyByType-gated, so every other language's
       // bare-name resolution below is untouched (their `callingType` machinery never qualifies).
-      if (parse.config.qualifyByType && !qualifier && callingType) {
+      // Skipped for an explicit-global `::name()` call (which can never name a member).
+      if (parse.config.qualifyByType && !qualifier && callingType && !globalScoped) {
         const qualified = `${callingType}::${name}`;
-        if (parse.declNames.has(qualified)) {
+        if (cppHas(qualified)) {
           return { to: `${self}#${qualified}`, kind: "direct", conf: "likely" };
         }
       }
-      if (!qualifier && parse.declNames.has(name)) {
+      if (!qualifier && (parse.config.qualifyByType ? cppHas(name) : parse.declNames.has(name))) {
         return { to: `${self}#${name}`, kind: "direct", conf: "likely" };
       }
       // C++ N-S3 (ADR 0035): `using`-imported names. An explicit `using ns::f;` makes a bare `f()`
       // resolve to its `ns::f` declaration (most specific); a `using namespace ns;` makes a bare
       // `name()` resolve to `ns::name` when that member is declared in THIS file. Intra-file,
       // file-scoped approximation; if >1 used namespace declares `name` it stays `unresolved` (C++
-      // would be an ambiguity error) — never a guess. `likely`. qualifyByType-gated.
-      if (parse.config.qualifyByType && !qualifier) {
+      // would be an ambiguity error) — never a guess. `likely`. qualifyByType-gated. Skipped for an
+      // explicit-global `::name()` (a using-directive name is not in the global scope).
+      if (parse.config.qualifyByType && !qualifier && !globalScoped) {
         const alias = parse.cppUsingAliases.get(name);
-        if (alias && parse.declNames.has(alias)) {
+        if (alias && cppHas(alias)) {
           return { to: `${self}#${alias}`, kind: "direct", conf: "likely" };
         }
-        const viaNs = parse.cppUsingNamespaces.map((ns) => `${ns}::${name}`).filter((q) => parse.declNames.has(q));
+        const viaNs = parse.cppUsingNamespaces.map((ns) => `${ns}::${name}`).filter((q) => cppHas(q));
         if (viaNs.length === 1) {
           return { to: `${self}#${viaNs[0]}`, kind: "direct", conf: "likely" };
         }
@@ -765,7 +778,7 @@ export const treeSitterProvider: LanguageProvider = {
       // `::`-scoped only, so `obj.method()` / `ptr->m()` (unscoped) never route here.
       // ceiling `likely` (no type system); an unknown scope/name stays `unresolved`. qualifyByType-gated.
       if (parse.config.qualifyByType && scopedPath) {
-        if (parse.declNames.has(scopedPath)) {
+        if (cppHas(scopedPath)) {
           return { to: `${self}#${scopedPath}`, kind: "direct", conf: "likely" };
         }
         // Cross-FILE same-dir: the qualified name (a namespace member like `remote::fetch`) is defined
