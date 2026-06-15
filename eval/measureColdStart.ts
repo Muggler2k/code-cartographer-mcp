@@ -20,6 +20,9 @@
 //                              cold-start. A faithful large-repo SLA would need a
 //                              representative real repo; this is the autonomous proxy.
 //            = "<fixtureName>" → eval/fixtures/<fixtureName>, unscoped.
+//            = "<path/to/repo>" → any real repo PATH (absolute or with a separator), gitignore-
+//                              scoped. The turnkey S4 large-real-complexity measurement: point it
+//                              at a representative large real source repo to get its cold start.
 // Prints one JSON line: { target, coldMs, files, nodes, edges }.
 
 import { promises as fs } from "node:fs";
@@ -87,12 +90,22 @@ async function resolveTarget(target: string): Promise<{ root: string; config: Ex
     // can never mask the build error (or a real SLA breach) the gate exists to surface.
     return { root, config: { mode: "none" }, cleanup: () => fs.rm(root, { recursive: true, force: true }).catch(() => {}) };
   }
+  // An explicit repo PATH (absolute, or containing a separator) → measure THAT repo's cold start
+  // directly, gitignore-scoped (a real repo respects .gitignore — skips node_modules / build output).
+  // This makes the S4 large-real-complexity measurement turnkey: point the runner at any real repo,
+  // no code edit. (Fixture targets are bare names, never paths, so they keep the unscoped branch.)
+  if (path.isAbsolute(target) || target.includes("/") || target.includes("\\")) {
+    const root = path.resolve(target);
+    const stat = await fs.stat(root).catch(() => null);
+    if (!stat?.isDirectory()) throw new Error(`measureColdStart: not a directory: ${root}`);
+    return { root, config: { mode: "gitignore" } };
+  }
   return { root: path.join(EVAL_DIR, "fixtures", target), config: { mode: "none" } };
 }
 
 async function main(): Promise<void> {
   const target = process.argv[2];
-  if (!target) throw new Error("usage: measureColdStart.ts <self|large|fixtureName>");
+  if (!target) throw new Error("usage: measureColdStart.ts <self|large|fixtureName|path/to/repo>");
 
   const { root, config, cleanup } = await resolveTarget(target);
   try {
