@@ -524,12 +524,14 @@ export const treeSitterProvider: LanguageProvider = {
     const parses: FileParse[] = [];
     const declsByFile = new Map<string, Set<string>>(); // file -> declared top-level names
     const goPackages = new Map<string, Map<string, string>>(); // dir -> name -> declaring file
-    // C++ N-S2 (ADR 0035): `<dir> <name>` -> file(s) in that dir DEFINING a non-static free function
-    // `name`. A call the intra-file pass can't resolve binds to the unique SAME-DIRECTORY definition
-    // — a deliberately conservative proxy for `#include`-scoping (the dir is a rough module boundary,
-    // mirroring `goPackages`): it resolves the common same-module header/.cpp edge while staying
-    // honest across unrelated modules (a cross-dir or ambiguous name stays `unresolved`, never a
-    // false edge). Members (qualified `Type::name`) and static functions (file-local) are excluded.
+    // C++ N-S2/N-S3 (ADR 0035): `<dir> <name>` -> file(s) in that dir DEFINING a non-static function
+    // whose qualified name comes from its enclosing scope — a global free function (`shared_util`,
+    // N-S2) OR a namespace member (`geometry::side`, N-S3). A call the intra-file pass can't resolve
+    // binds to the unique SAME-DIRECTORY definition — a deliberately conservative proxy for
+    // `#include`-scoping (the dir is a rough module boundary, mirroring `goPackages`): it resolves the
+    // common same-module header/.cpp edge while staying honest across unrelated modules (a cross-dir
+    // or ambiguous name stays `unresolved`, never a false edge). CLASS members (`Type::m`, including
+    // an out-of-line `int Type::m(){}` at file scope) and static functions (file-local) are excluded.
     // Limitations (deferred to a fuller #include-graph + scope-aware stage), clamped to `likely`:
     //   UNDER-resolve — an `inline` definition in a header counts as a second def → that name stays
     //     `unresolved`; same-file overloads collapse to one file node; cross-dir module calls.
@@ -562,12 +564,16 @@ export const treeSitterProvider: LanguageProvider = {
 
       const declNames = new Set<string>();
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
-      const visitDecls = (node: SyntaxNode, enclosingType: string | null): void => {
+      // `enclosingIsType` (C++): are we inside a class/struct body? A namespace resets it to false.
+      // Used to index namespace members + global functions into cppGlobals but NOT class members.
+      const visitDecls = (node: SyntaxNode, enclosingType: string | null, enclosingIsType: boolean): void => {
         const spec = declSpecFor(node);
         let childType = cppChildScope(config, node, enclosingType); // C++ N-S3: namespace scope
+        let childIsType = node.type === "namespace_definition" ? false : enclosingIsType;
         if (spec) {
           const { name, kind, childType: ct } = declScope(config, spec, node, enclosingType);
           childType = ct;
+          if (kind === "class") childIsType = true; // a class/struct body scopes its members
           if (name) {
             const id = `${file.path}#${name}`;
             declNames.add(name);
@@ -583,8 +589,15 @@ export const treeSitterProvider: LanguageProvider = {
                 confidence: exported ? "candidate" : "unclear",
                 reason: `tree-sitter ${extensionOf(file.path)} declaration`
               });
-              // C++ N-S2: index a non-static FREE function (no `::`), keyed by its directory.
-              if (config.qualifyByType && kind === "function" && exported && !name.includes("::")) {
+              // C++ N-S2/N-S3: index a non-static function whose qualified name comes from its
+              // ENCLOSING scope — a global free function (`shared_util`) or a namespace member
+              // (`geometry::side`) — keyed by its directory, for same-dir cross-file resolution.
+              // Excluded: class members (`enclosingIsType`), AND an out-of-line definition
+              // (`int Type::m(){}` at file scope) whose declarator carries a `::` the enclosing scope
+              // didn't provide — indexing those would over-resolve cross-file member calls.
+              const scopeQualified =
+                enclosingType === null ? !name.includes("::") : name.startsWith(`${enclosingType}::`);
+              if (config.qualifyByType && kind === "function" && exported && !enclosingIsType && scopeQualified) {
                 const key = `${dirOf(file.path)} ${name}`;
                 (cppGlobals.get(key) ?? cppGlobals.set(key, new Set()).get(key)!).add(file.path);
               }
@@ -593,10 +606,10 @@ export const treeSitterProvider: LanguageProvider = {
         }
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
-          if (child) visitDecls(child, childType);
+          if (child) visitDecls(child, childType, childIsType);
         }
       };
-      visitDecls(root, null);
+      visitDecls(root, null, false);
 
       declsByFile.set(file.path, declNames);
       if (config.resolution === "package") {
@@ -673,12 +686,13 @@ export const treeSitterProvider: LanguageProvider = {
           return { to: `${self}#${viaNs[0]}`, kind: "direct", conf: "likely" };
         }
       }
-      // C++ N-S2 (ADR 0035): a bare call the intra-file pass didn't resolve binds to the UNIQUE
+      // C++ N-S2 (ADR 0035): a BARE call the intra-file pass didn't resolve binds to the UNIQUE
       // global (non-static, free) definition of that name in another file — the header-declares /
-      // .cpp-defines / called-elsewhere edge, captured via C++'s global linkage. Ambiguous (>1
-      // definition, e.g. overloads) or undefined → stays `unresolved`. qualifyByType-gated. This is
-      // reached only when `name` is absent from the caller's own `declNames` (the intra-file check
-      // above returns first), so a same-file definition never routes through here.
+      // .cpp-defines / called-elsewhere edge, captured via C++'s global linkage. (Namespace-member
+      // cross-file resolution shares this `cppGlobals` index but routes through the SCOPED branch
+      // below.) Ambiguous (>1 definition, e.g. overloads) or undefined → stays `unresolved`.
+      // qualifyByType-gated. Reached only when `name` is absent from the caller's own `declNames` (the
+      // intra-file check above returns first), so a same-file definition never routes through here.
       if (parse.config.qualifyByType && !qualifier) {
         const defs = cppGlobals.get(`${dirOf(self)} ${name}`); // same-directory definitions only
         if (defs && defs.size === 1) {
@@ -691,10 +705,20 @@ export const treeSitterProvider: LanguageProvider = {
       // member call) — binds to the declaration whose node id is the call's FULL `::`-path (the decl
       // pass qualifies namespace/class members the same way). Matching the full path, not a truncated
       // `qualifier::name`, means a deep call never collides with an unrelated 2-segment `b::f`.
-      // `::`-scoped only, so `obj.method()` / `ptr->m()` (unscoped) never route here. Intra-file;
+      // `::`-scoped only, so `obj.method()` / `ptr->m()` (unscoped) never route here.
       // ceiling `likely` (no type system); an unknown scope/name stays `unresolved`. qualifyByType-gated.
-      if (parse.config.qualifyByType && scopedPath && parse.declNames.has(scopedPath)) {
-        return { to: `${self}#${scopedPath}`, kind: "direct", conf: "likely" };
+      if (parse.config.qualifyByType && scopedPath) {
+        if (parse.declNames.has(scopedPath)) {
+          return { to: `${self}#${scopedPath}`, kind: "direct", conf: "likely" };
+        }
+        // Cross-FILE: the qualified name (a namespace member like `remote::fetch`) is defined in
+        // another file in the SAME directory — the unique same-dir definition (`size === 1`), the
+        // N-S2 dir-as-module proxy extended to namespace members. Ambiguous/cross-dir → `unresolved`.
+        const defs = cppGlobals.get(`${dirOf(self)} ${scopedPath}`);
+        if (defs && defs.size === 1) {
+          const [defFile] = defs;
+          return { to: `${defFile}#${scopedPath}`, kind: "direct", conf: "likely" };
+        }
       }
       if (parse.config.resolution === "module") {
         // Rust: `mod::name` (scoped) → the module's file; bare `name` → a `use`-imported name.
