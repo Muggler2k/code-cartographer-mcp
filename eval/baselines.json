@@ -80,10 +80,11 @@
     }
   },
   "coldStartSla": {
-    "_comment": "ADR 0034 S4 — conversational COLD-START latency SLAs, gated by test/latencySla.test.ts. Each target is built in a FRESH node process (true cold start: WASM tree-sitter grammars + the TS Program load from scratch — the two cold-start drivers ADR 0034 names). Unlike the per-fixture softCeilingsMs (a ~10× wall-clock SANITY ceiling on a within-process init), these are real product budgets: the first deep tool call must return under slaMs even on a slow CI runner. Honoring ADR 0030's anti-flakiness mandate, slaMs keeps generous headroom over devBaselineMs (machine-relative; a slow runner needing a bump is a conscious edit here, with reasoning — never auto-regenerated). 'self' = this repository (a realistic ~144-file multi-language medium repo: TS source + cpp/python/… fixtures → WASM), gitignore-scoped; coldMs grows as the repo grows, so a breach is a genuine 'cold-start regressed' signal.",
+    "_comment": "ADR 0034 S4 — conversational COLD-START latency SLAs, gated by test/latencySla.test.ts. Each target is built in a FRESH node process (true cold start: WASM tree-sitter grammars + the TS Program load from scratch — the two cold-start drivers ADR 0034 names). Unlike the per-fixture softCeilingsMs (a ~10× wall-clock SANITY ceiling on a within-process init), these are real product budgets: the first deep tool call must return under slaMs even on a slow CI runner. Honoring ADR 0030's anti-flakiness mandate, slaMs keeps generous headroom over devBaselineMs (machine-relative; a slow runner needing a bump is a conscious edit here, with reasoning — never auto-regenerated). THREE complementary targets cover distinct cold-start failure modes: 'cpp-namespaces' = the WASM grammar-load path; 'self' = this repository (a realistic ~144-file multi-language medium repo: TS source + cpp/python/… fixtures → WASM), gitignore-scoped, the hardest real-world COMPLEXITY cold-start (coldMs grows with the repo, so a breach is a genuine regression signal); 'large' = a GENERATED 1000-file synthetic TS repo (temp dir, cleaned up) gating cold-start SCALING in file COUNT — it catches an O(n²)-class regression in the walk/graph-build/index. NOTE: file count is NOT the dominant cold-start cost (1000 trivial synthetic files ~0.5s « 144 real multi-language files ~2.8s) — 'large' is a count-scaling guard, not a complexity test; a faithful large-real-repo SLA would still need a representative repo.",
     "targets": {
       "cpp-namespaces": { "slaMs": 5000, "devBaselineMs": 125 },
-      "self": { "slaMs": 12000, "devBaselineMs": 2800 }
+      "self": { "slaMs": 12000, "devBaselineMs": 2800 },
+      "large": { "slaMs": 8000, "devBaselineMs": 520 }
     }
   }
 }

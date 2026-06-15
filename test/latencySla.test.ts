@@ -43,9 +43,18 @@ interface ColdStartMeasurement {
 // Iterating the baseline keys (not a hardcoded list) means a target added to baselines.json
 // is automatically gated — it can never be silently left out — and there is no duplicated
 // target list to drift.
-const TARGETS = (
+const ALL_TARGETS = (
   JSON.parse(readFileSync(BASELINES, "utf8")) as { coldStartSla: { targets: Record<string, Budget> } }
 ).coldStartSla.targets;
+
+// 'large' is a 1000-file synthetic SCALING probe (generates + builds a temp repo in a fresh
+// subprocess) — opt-in via CCM_COLDSTART_LARGE so it never taxes the local edit-test loop. CI
+// sets the flag (ci.yml) so the count-scaling / O(n²) guard still runs on every PR. The cheap
+// targets (cpp-namespaces, self) always run.
+const RUN_LARGE = Boolean(process.env.CCM_COLDSTART_LARGE);
+const TARGETS = Object.fromEntries(
+  Object.entries(ALL_TARGETS).filter(([name]) => name !== "large" || RUN_LARGE)
+);
 
 /** Build `target` in a fresh node process (true cold start) and return its measurement. */
 function measureColdStart(target: string): ColdStartMeasurement {
@@ -75,7 +84,8 @@ function measureColdStart(target: string): ColdStartMeasurement {
 
 describe("cold-start latency SLA (ADR 0034 S4)", () => {
   // One gated `it` per budgeted target. cpp-namespaces exercises the WASM tree-sitter grammar
-  // load; self (this repo) exercises the realistic multi-language TS-Program + WASM + walk cost.
+  // load; self (this repo) exercises the realistic multi-language TS-Program + WASM + walk cost;
+  // large (CI-only, see RUN_LARGE above) exercises count-scaling over a 1000-file synthetic repo.
   for (const [target, budget] of Object.entries(TARGETS)) {
     it(`${target}: fresh-process cold start stays under the SLA`, () => {
       const measured = measureColdStart(target);
