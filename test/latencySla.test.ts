@@ -11,7 +11,7 @@
 // noise. Budgets are data — edit baselines.json with reasoning, never auto-regenerate.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,6 +66,11 @@ const TARGETS = Object.fromEntries(
   Object.entries(ALL_TARGETS).filter(([name]) => {
     if (name === "large") return RUN_LARGE;
     if (name === "csharp-small") return ROSLYN_READY;
+    // A path-keyed target measures a REAL repo at that path (e.g. node_modules/typescript/lib, or a
+    // user-provided large repo). Gate on the path existing — skip (not fail) if absent, so the gate
+    // is portable: a checkout without that repo simply doesn't run it. Resolved like the runner (cwd
+    // = REPO_ROOT).
+    if (name.includes("/") || name.includes("\\")) return existsSync(path.resolve(REPO_ROOT, name));
     return true;
   })
 );
