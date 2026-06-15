@@ -1,6 +1,6 @@
 # Project Status
 
-_Last updated: 2026-06-15_
+_Last updated: 2026-06-15 · Status: **GA — v1.0.0** (released 2026-06-15 as an internal MCP tool; CAS ADR 0034 §4)_
 
 ## TL;DR
 

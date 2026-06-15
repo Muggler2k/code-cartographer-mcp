@@ -11,7 +11,7 @@ import { cliArgs, cliUsage, findCliSpec, registerTools } from "./tools.js";
 const server = new McpServer(
   {
     name: "code-cartographer-mcp",
-    version: "0.1.0"
+    version: "1.0.0"
   },
   {
     instructions:

@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - MCP clients must point at the **built** `dist/index.js` (`npm run build` first); `dev`/`cli` run unbuilt `src/` via `tsx`. See `docs/mcp-client-config.md`.
 - `git config core.hooksPath .githooks` — enable the local secret/PII scanning hooks. These are bash scripts: on this Windows-primary repo they run under Git Bash/WSL; on macOS/Linux also `chmod +x .githooks/*`.
 
-## Status: implemented (Epics A–M, Q, O)
+## Status: GA — v1.0.0 (internal MCP tool); implemented (Epics A–M, Q, O)
 
 **The full product is implemented and tested.** `init_codebase` builds, persists (atomic + gitignored), and `check_init_state` stale-checks a real `.code-cartographer-mcp/context-map.json` that carries files, languages, entry points, modules, ownership signals, a **static call graph** (provider-extracted), and confidence-graded findings. The **20 MCP tools** and the CLI all work end-to-end. Source layout:
 

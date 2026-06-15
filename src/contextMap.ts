@@ -59,7 +59,7 @@ const MAP_DIR = ".code-cartographer-mcp";
 const MAP_FILE = "context-map.json";
 const MARKER_FILE = ".initializing";
 /** Keep in sync with package.json `version`. Not part of `mapHash` (volatile). */
-const TOOL_VERSION = "0.1.0";
+const TOOL_VERSION = "1.0.0";
 
 interface InitMarker {
   startedAt: string;
