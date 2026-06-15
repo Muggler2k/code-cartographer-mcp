@@ -889,9 +889,22 @@ export const treeSitterProvider: LanguageProvider = {
         if (alias && cppHas(alias)) {
           return { to: `${self}#${alias}`, kind: "direct", conf: "likely" };
         }
-        const viaNs = parse.cppUsingNamespaces.map((ns) => `${ns}::${name}`).filter((q) => cppHas(q));
-        if (viaNs.length === 1) {
-          return { to: `${self}#${viaNs[0]}`, kind: "direct", conf: "likely" };
+        // Exactly one used namespace declaring `name` resolves; ≥2 stays `unresolved` (ambiguity).
+        // Single-pass with an early-exit on the 2nd hit — avoids the per-call `.map()`+`.filter()`
+        // double-array (+ K-string) allocation on this hot edge-resolution path.
+        let viaNs: string | null = null;
+        for (const ns of parse.cppUsingNamespaces) {
+          const q = `${ns}::${name}`;
+          if (cppHas(q)) {
+            if (viaNs !== null) {
+              viaNs = null; // a 2nd match → ambiguous → fall through to `unresolved`
+              break;
+            }
+            viaNs = q;
+          }
+        }
+        if (viaNs !== null) {
+          return { to: `${self}#${viaNs}`, kind: "direct", conf: "likely" };
         }
       }
       // C++ N-S2 (ADR 0035): a BARE call the intra-file pass didn't resolve binds to the UNIQUE
