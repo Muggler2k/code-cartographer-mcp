@@ -295,6 +295,7 @@ interface FileParse {
   qualifierMap: Map<string, string>; // Python: alias -> moduleFile
   cppUsingAliases: Map<string, string | null>; // C++ N-S3: `using ns::f;` → bare f -> ns::f (null = ambiguous)
   cppUsingNamespaces: string[]; // C++ N-S3: `using namespace ns;`
+  cppIncludes: Set<string>; // C++: quoted `#include` targets, repo-relative (cross-dir resolution)
 }
 
 /** Resolve a Python module spec to a file in the owned set, or null. */
@@ -467,6 +468,34 @@ function parseRustUses(root: SyntaxNode, rustModules: Map<string, string>, decls
   return importMap;
 }
 
+/** C++ source-file extensions a header's definition lives in (header/source sibling, ADR 0035). */
+const CPP_SOURCE_EXTS = [".cpp", ".cc", ".cxx", ".c"];
+
+/**
+ * C++ (ADR 0035): the set of QUOTED `#include "..."` targets in a file, each resolved to a
+ * repo-relative POSIX path against the including file's directory. Angle-bracket/system includes
+ * (`<vector>`) are skipped — they never name a repo file. Used for cross-DIRECTORY resolution: a
+ * call binds to a definition in the sibling source of an included header (`x.h` -> `x.cpp`).
+ */
+function parseCppIncludes(root: SyntaxNode, fileDir: string): Set<string> {
+  const includes = new Set<string>();
+  const walk = (node: SyntaxNode): void => {
+    if (node.type === "preproc_include") {
+      const pathNode = node.childForFieldName("path");
+      if (pathNode?.type === "string_literal") {
+        const rel = pathNode.text.replace(/^"+|"+$/g, ""); // strip surrounding quotes
+        if (rel) includes.add(path.posix.normalize(path.posix.join(fileDir, rel)));
+      }
+    }
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i);
+      if (child) walk(child);
+    }
+  };
+  walk(root);
+  return includes;
+}
+
 /**
  * C++ N-S3 (ADR 0035): parse `using` declarations into two file-scoped maps.
  *   `using ns::f;`        (using-declaration) → aliases: bare `f` -> the full path `ns::f`.
@@ -541,6 +570,9 @@ export const treeSitterProvider: LanguageProvider = {
     //     is a private member AND a unique same-dir free `foo` exists, it binds to the free function.
     //   All over-resolutions emit `likely` (never `confirmed`) — within the codebase-only ceiling.
     const cppGlobals = new Map<string, Set<string>>();
+    // C++ (ADR 0035): the same indexable functions keyed by name only (no dir) -> defining file(s),
+    // for cross-DIRECTORY resolution gated by the `#include` graph (a def must be include-connected).
+    const cppDefsByName = new Map<string, Set<string>>();
 
     for (const file of input.files) {
       const config = CONFIGS[extensionOf(file.path)];
@@ -600,6 +632,7 @@ export const treeSitterProvider: LanguageProvider = {
               if (config.qualifyByType && kind === "function" && exported && !enclosingIsType && scopeQualified) {
                 const key = `${dirOf(file.path)} ${name}`;
                 (cppGlobals.get(key) ?? cppGlobals.set(key, new Set()).get(key)!).add(file.path);
+                (cppDefsByName.get(name) ?? cppDefsByName.set(name, new Set()).get(name)!).add(file.path);
               }
             }
           }
@@ -620,7 +653,7 @@ export const treeSitterProvider: LanguageProvider = {
       }
 
       const imports = config.resolution === "import" ? parsePyImports(root, dirOf(file.path), fileSet) : { importMap: new Map(), qualifierMap: new Map() };
-      parses.push({ file, config, root, declNames, ...imports, cppUsingAliases: new Map(), cppUsingNamespaces: [] });
+      parses.push({ file, config, root, declNames, ...imports, cppUsingAliases: new Map(), cppUsingNamespaces: [], cppIncludes: new Set() });
 
       if (file.category === "test") {
         entryPointHints.push({ path: file.path, kind: "test_entry", confidence: "candidate", reason: "test-category source file" });
@@ -647,10 +680,32 @@ export const treeSitterProvider: LanguageProvider = {
         const u = parseCppUsings(parse.root); // C++ N-S3: `using` declarations/directives
         parse.cppUsingAliases = u.aliases;
         parse.cppUsingNamespaces = u.namespaces;
+        parse.cppIncludes = parseCppIncludes(parse.root, dirOf(parse.file.path)); // C++: cross-dir #include graph
       }
     }
 
     // ---- Phase 2: resolve and emit call edges ----
+    // C++ cross-DIRECTORY resolution (ADR 0035): a same-dir miss may still bind if the definition
+    // lives in a file the caller is connected to via `#include` — the sibling source of an included
+    // header (`#include "x.h"` -> `x.cpp` defines it), or a directly-included source. Resolves only
+    // when EXACTLY ONE include-connected file defines the name (the `#include` graph disambiguates,
+    // so unrelated same-named definitions elsewhere in the repo never over-resolve). `likely`.
+    // Honest UNDER-resolutions (stay `unresolved`, never a wrong edge): an `inline` def in the
+    // included header AND a sibling-source def both count → 2 hits → unresolved; a multi-dot header
+    // name (`x.api.h`) only sheds its last extension, so its source sibling is sought as `x.api.cpp`.
+    const resolveViaIncludes = (parse: FileParse, key: string): { to: string; kind: CallEdgeKind; conf: Confidence } | null => {
+      const defFiles = cppDefsByName.get(key);
+      if (!defFiles) return null;
+      const hits = new Set<string>();
+      for (const hdr of parse.cppIncludes) {
+        if (defFiles.has(hdr)) hits.add(hdr); // a directly-included source defines it
+        const base = hdr.replace(/\.[^./]+$/, "");
+        for (const ext of CPP_SOURCE_EXTS) if (defFiles.has(base + ext)) hits.add(base + ext);
+      }
+      if (hits.size !== 1) return null;
+      const [defFile] = hits;
+      return { to: `${defFile}#${key}`, kind: "direct", conf: "likely" };
+    };
     const resolveCallee = (
       parse: FileParse,
       parsed: { name: string; qualifier: string | null; scoped: boolean; scopedPath: string | null },
@@ -699,6 +754,8 @@ export const treeSitterProvider: LanguageProvider = {
           const [defFile] = defs;
           return { to: `${defFile}#${name}`, kind: "direct", conf: "likely" };
         }
+        const viaInc = resolveViaIncludes(parse, name); // cross-DIRECTORY via the #include graph
+        if (viaInc) return viaInc;
       }
       // C++ N-S3 (ADR 0035): a SCOPED call `Scope::name` — namespace-qualified (`geometry::area()`,
       // nested `outer::inner::deep()`) or class-qualified (`Calculator::value()`, a static/explicit
@@ -711,14 +768,16 @@ export const treeSitterProvider: LanguageProvider = {
         if (parse.declNames.has(scopedPath)) {
           return { to: `${self}#${scopedPath}`, kind: "direct", conf: "likely" };
         }
-        // Cross-FILE: the qualified name (a namespace member like `remote::fetch`) is defined in
-        // another file in the SAME directory — the unique same-dir definition (`size === 1`), the
-        // N-S2 dir-as-module proxy extended to namespace members. Ambiguous/cross-dir → `unresolved`.
+        // Cross-FILE same-dir: the qualified name (a namespace member like `remote::fetch`) is defined
+        // in another file in the SAME directory — the unique same-dir definition (`size === 1`), the
+        // N-S2 dir-as-module proxy extended to namespace members. Ambiguous → `unresolved`.
         const defs = cppGlobals.get(`${dirOf(self)} ${scopedPath}`);
         if (defs && defs.size === 1) {
           const [defFile] = defs;
           return { to: `${defFile}#${scopedPath}`, kind: "direct", conf: "likely" };
         }
+        const viaInc = resolveViaIncludes(parse, scopedPath); // cross-DIRECTORY via the #include graph
+        if (viaInc) return viaInc;
       }
       if (parse.config.resolution === "module") {
         // Rust: `mod::name` (scoped) → the module's file; bare `name` → a `use`-imported name.
