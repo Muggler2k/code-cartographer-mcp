@@ -226,7 +226,16 @@ function declScope(
   if (name && config.qualifyByType && enclosingType && kind === "function" && !name.includes("::")) {
     name = `${enclosingType}::${name}`;
   }
-  const childType = config.qualifyByType && kind === "class" && name ? name : enclosingType;
+  // The enclosing scope a declaration's body hands its descendants. A class/struct scopes its members
+  // (N-S1). A qualified FUNCTION name (`T::m` — an OUT-OF-LINE member body, or a namespace member)
+  // scopes its body to that prefix, so a bare call inside resolves member/enclosing-first instead of
+  // over-resolving to a same-named free function (the out-of-line-body scope-loss bug). qualifyByType-gated.
+  const childType =
+    config.qualifyByType && kind === "class" && name
+      ? name
+      : config.qualifyByType && kind === "function" && name && name.includes("::")
+        ? name.slice(0, name.lastIndexOf("::"))
+        : enclosingType;
   return { name, kind, childType };
 }
 
@@ -604,10 +613,15 @@ export const treeSitterProvider: LanguageProvider = {
       const declSpecFor = (node: SyntaxNode): DeclSpec | undefined => config.decls.find((d) => d.nodeType === node.type);
       // `enclosingIsType` (C++): are we inside a class/struct body? A namespace resets it to false.
       // Used to index namespace members + global functions into cppGlobals but NOT class members.
-      const visitDecls = (node: SyntaxNode, enclosingType: string | null, enclosingIsType: boolean): void => {
+      // `enclosingInternal` (C++): are we inside an ANONYMOUS namespace? Its members have INTERNAL
+      // linkage (TU-local, invisible to other files), so they must never enter the cross-file index —
+      // the same reason `static` is excluded (`exported`). Once internal, always internal (nested).
+      const visitDecls = (node: SyntaxNode, enclosingType: string | null, enclosingIsType: boolean, enclosingInternal: boolean): void => {
         const spec = declSpecFor(node);
         let childType = cppChildScope(config, node, enclosingType); // C++ N-S3: namespace scope
         let childIsType = node.type === "namespace_definition" ? false : enclosingIsType;
+        const childInternal =
+          enclosingInternal || (!!config.qualifyByType && node.type === "namespace_definition" && !node.childForFieldName("name"));
         if (spec) {
           const { name, kind, childType: ct } = declScope(config, spec, node, enclosingType);
           childType = ct;
@@ -636,7 +650,7 @@ export const treeSitterProvider: LanguageProvider = {
               // didn't provide — indexing those would over-resolve cross-file member calls.
               const scopeQualified =
                 enclosingType === null ? !name.includes("::") : name.startsWith(`${enclosingType}::`);
-              if (config.qualifyByType && kind === "function" && exported && !enclosingIsType && scopeQualified) {
+              if (config.qualifyByType && kind === "function" && exported && !enclosingIsType && !enclosingInternal && scopeQualified) {
                 const key = `${dirOf(file.path)} ${name}`;
                 (cppGlobals.get(key) ?? cppGlobals.set(key, new Set()).get(key)!).add(file.path);
                 (cppDefsByName.get(name) ?? cppDefsByName.set(name, new Set()).get(name)!).add(file.path);
@@ -646,10 +660,10 @@ export const treeSitterProvider: LanguageProvider = {
         }
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
-          if (child) visitDecls(child, childType, childIsType);
+          if (child) visitDecls(child, childType, childIsType, childInternal);
         }
       };
-      visitDecls(root, null, false);
+      visitDecls(root, null, false, false);
 
       declsByFile.set(file.path, declNames);
       if (config.resolution === "package") {

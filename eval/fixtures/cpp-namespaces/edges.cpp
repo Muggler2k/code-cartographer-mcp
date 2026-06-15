@@ -14,3 +14,11 @@ struct Holder {
   void glob();
   void callG() { ::glob(); }                // explicit-global ::glob -> the free glob(), NOT Holder::glob
 };
+
+struct Svc2 { void step(); void run2(); };
+void Svc2::step() { }
+void Svc2::run2() { step(); }               // out-of-line member body: step() -> Svc2::step (member-first), NOT free step()
+void step() {}                              // free fn colliding with the member Svc2::step
+
+int useAnon() { return anonFn(); }          // anonFn (lib.cpp anon namespace) has internal linkage -> unresolved
+
