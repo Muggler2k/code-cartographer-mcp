@@ -1,0 +1,6 @@
+{
+  "name": "cartographer-dev",
+  "description": "Development workflow for the Code Cartographer MCP two-repo system (impl + CAS): session priming/sync, ADR-first CAS snapshots, codebase-only + over-resolution review agents, eval-first fixture review, and the release flow. Bundles the project's cartographer/CAS skills and review agents for portability across clones and the sibling CAS repo.",
+  "version": "1.0.0",
+  "author": { "name": "Drew Gall" }
+}

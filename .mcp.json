@@ -3,6 +3,11 @@
     "context7": {
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "cartographer": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": { "CCM_TELEMETRY": "1" }
     }
   }
 }
